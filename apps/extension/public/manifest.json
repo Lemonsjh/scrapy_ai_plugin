@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Atlas AI 数据采集台",
+  "short_name": "Atlas",
+  "version": "0.1.0",
+  "description": "用自然语言生成可检查的网页数据采集规则。",
+  "minimum_chrome_version": "114",
+  "permissions": ["activeTab", "scripting", "storage", "downloads", "sidePanel"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "background": {
+    "service_worker": "service-worker.js",
+    "type": "module"
+  },
+  "action": { "default_title": "打开 Atlas 采集台" },
+  "side_panel": { "default_path": "sidepanel.html" },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}

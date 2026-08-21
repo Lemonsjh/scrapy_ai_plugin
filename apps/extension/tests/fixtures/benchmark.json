@@ -1,0 +1,12 @@
+[
+  { "file": "01-products.html", "intent": "采集商品名称、价格和详情链接", "fields": ["title", "price", "url"] },
+  { "file": "02-news.html", "intent": "采集新闻标题、发布时间和作者", "fields": ["title", "time", "author"] },
+  { "file": "03-jobs.html", "intent": "采集岗位、公司和城市", "fields": ["role", "company", "city"] },
+  { "file": "04-hotels.html", "intent": "采集评分大于4.5的酒店名称和评分", "fields": ["name", "rating"] },
+  { "file": "05-books.html", "intent": "采集书名、作者和ISBN", "fields": ["title", "author", "isbn"] },
+  { "file": "06-table.html", "intent": "采集表格中的公司、行业和营收", "fields": ["company", "sector", "revenue"] },
+  { "file": "07-images.html", "intent": "采集作品名称和图片地址", "fields": ["title", "image"] },
+  { "file": "08-missing.html", "intent": "采集名称和可选折扣", "fields": ["name", "discount"] },
+  { "file": "09-pagination.html", "intent": "采集所有标题并点击下一页", "fields": ["title"] },
+  { "file": "10-infinite.html", "intent": "无限滚动采集动态卡片编号和内容", "fields": ["id", "content"] }
+]
