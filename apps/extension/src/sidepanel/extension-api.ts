@@ -1,5 +1,5 @@
 import type { AiPlanRequest, AiPlanResponse, ExtensionMessage, ExtractionPlan, JobRecord, PreviewResponse, RowData, SnapshotResponse } from "@atlas/shared";
-import { AiPlanOutputJsonSchema, AiPlanOutputSchema, AiPlanResponseSchema, AI_SYSTEM_INSTRUCTIONS, aiPlanInput } from "@atlas/shared";
+import { AiPlanOutputJsonSchema, AiPlanOutputSchema, AiPlanResponseSchema, AI_SYSTEM_INSTRUCTIONS, aiPlanInput, ExtractionPlanSchema } from "@atlas/shared";
 
 export type ConnectionMode = "proxy" | "direct";
 export type ProviderKind = "atlas" | "openai" | "compatible";
@@ -127,6 +127,31 @@ function outputText(body: Record<string, unknown>) {
   throw new Error("模型没有返回结构化文本");
 }
 
+export function parseAiPlanOutput(text: string) {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error("模型返回的内容不是有效 JSON");
+  }
+
+  const standard = AiPlanOutputSchema.safeParse(parsed);
+  if (standard.success) return standard.data;
+
+  // Some OpenAI-compatible providers honor json_object but ignore the requested
+  // envelope and return the ExtractionPlan itself. Accept that safe subset and
+  // normalize it locally instead of failing an otherwise valid plan.
+  const barePlan = ExtractionPlanSchema.safeParse(parsed);
+  if (barePlan.success) {
+    return {
+      plan: barePlan.data,
+      warnings: ["兼容模型返回了裸采集规则，Atlas 已自动规范为标准结果。"],
+    };
+  }
+
+  throw standard.error;
+}
+
 async function directPlan(request: AiPlanRequest, settings: Settings) {
   if (!settings.apiKey.trim()) throw new Error("请填写模型 API Key");
   if (!settings.model.trim()) throw new Error("请填写模型名称");
@@ -146,7 +171,7 @@ async function directPlan(request: AiPlanRequest, settings: Settings) {
         : { type: "json_object" },
     }) }));
   const text = settings.apiProtocol === "responses" ? outputText(body) : String((body.choices as { message?: { content?: string } }[] | undefined)?.[0]?.message?.content ?? "");
-  return AiPlanOutputSchema.parse(JSON.parse(text));
+  return parseAiPlanOutput(text);
 }
 
 export async function testAiConnection(settings: Settings) {
