@@ -11,7 +11,7 @@ export const AI_SYSTEM_INSTRUCTIONS = `你是网页数据采集规则规划器�
 6. 默认限制为 10 页、1000 行、600000 毫秒、1000 毫秒间隔；除非用户明确要求更小范围。
 7. 下一页按钮只有在快照中有明确证据时使用；否则 pagination 设为 none。
 8. 输出字段名使用用户语言，id 使用简短 ASCII 标识。
-9. 最终输出必须是符合 Schema 的 JSON 对象；不要输出 Markdown 代码块、解释文字或 JSON 之外的任何内容。`;
+9. 最终输出必须是一个符合 Schema 的 JSON 对象，顶层必须包含 "plan" 和 "warnings"。"plan" 必须是完整的 ExtractionPlan 对象；"warnings" 必须是字符串数组，没有警告时返回 []。不要输出裸 plan、Markdown 代码块、解释文字或 JSON 之外的任何内容。`;
 
 export function aiPlanInput(request: AiPlanRequest) {
   return JSON.stringify({
