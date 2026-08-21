@@ -31,8 +31,14 @@ export const providerPresets: Record<ProviderKind, Pick<Settings, "providerName"
 };
 
 export async function activeTab() {
-  const tab = (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
-  if (!tab?.id || !tab.url || !/^https?:/.test(tab.url)) throw new Error("请在普通网页中打开采集台");
+  // Clicking the side panel can make `currentWindow` resolve to the panel host
+  // rather than the page the user had open. Prefer the browser's last focused tab.
+  const lastFocused = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  const current = lastFocused.length ? lastFocused : await chrome.tabs.query({ active: true, currentWindow: true });
+  const tab = current.find((item) => item.id !== undefined && /^https?:/.test(item.url ?? ""));
+  if (!tab?.url || tab.id === undefined) {
+    throw new Error("未识别到可采集网页。请先点击目标网页，再打开侧边栏并重试。");
+  }
   return tab as chrome.tabs.Tab & { id: number; url: string };
 }
 
