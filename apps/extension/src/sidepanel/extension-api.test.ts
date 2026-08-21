@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { activeTab, tabMessage } from "./extension-api";
+import { activeTab, parseAiPlanOutput, tabMessage } from "./extension-api";
 
 function installChromeMock(options: { granted?: boolean; permissionRequest?: boolean; tabs?: chrome.tabs.Tab[] } = {}) {
   const tabs = options.tabs ?? [{ id: 17, url: "https://hotel.meituan.com/data-center" } as chrome.tabs.Tab];
@@ -34,6 +34,19 @@ function installChromeMock(options: { granted?: boolean; permissionRequest?: boo
   return { events, query, contains, request, executeScript, sendMessage };
 }
 
+const barePlan = {
+  mode: "list" as const,
+  rowSelectors: [".item"],
+  fields: [{
+    id: "title", name: "标题", selectors: [".title"], source: "text" as const,
+    required: true, confidence: 0.9, transforms: [{ type: "trim" as const }],
+  }],
+  pagination: { type: "none" as const },
+  filters: [],
+  limits: { maxPages: 1, maxRows: 20, maxDurationMs: 60_000, delayMs: 1000 },
+  deduplicateBy: ["title"],
+};
+
 afterEach(() => {
   Reflect.deleteProperty(globalThis, "chrome");
   vi.restoreAllMocks();
@@ -64,5 +77,23 @@ describe("side panel page access", () => {
     expect(mocks.events).toEqual(["contains", "request"]);
     expect(mocks.executeScript).not.toHaveBeenCalled();
     expect(mocks.sendMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe("compatible AI output", () => {
+  it("accepts the standard plan envelope", () => {
+    const output = parseAiPlanOutput(JSON.stringify({ plan: barePlan, warnings: [] }));
+    expect(output.plan.fields[0]?.id).toBe("title");
+    expect(output.warnings).toEqual([]);
+  });
+
+  it("normalizes a bare ExtractionPlan returned by compatible providers", () => {
+    const output = parseAiPlanOutput(JSON.stringify(barePlan));
+    expect(output.plan.fields[0]?.id).toBe("title");
+    expect(output.warnings[0]).toContain("裸采集规则");
+  });
+
+  it("rejects unrelated JSON objects", () => {
+    expect(() => parseAiPlanOutput(JSON.stringify({ foo: "bar" }))).toThrow();
   });
 });
