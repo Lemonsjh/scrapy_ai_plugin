@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "description": "用自然语言生成可检查的网页数据采集规则。",
   "minimum_chrome_version": "114",
-  "permissions": ["activeTab", "scripting", "storage", "downloads", "sidePanel"],
+  "permissions": ["tabs", "activeTab", "scripting", "storage", "downloads", "sidePanel"],
   "optional_host_permissions": ["http://*/*", "https://*/*"],
   "background": {
     "service_worker": "service-worker.js",
