@@ -5,6 +5,7 @@ export type ConnectionMode = "proxy" | "direct";
 export type ProviderKind = "atlas" | "openai" | "compatible";
 export type ApiProtocol = "responses" | "chat_completions";
 export type ReasoningEffort = "none" | "low" | "medium" | "high" | "xhigh";
+export type ActiveWebTab = chrome.tabs.Tab & { id: number; url: string };
 
 export interface Settings {
   aiEnabled: boolean;
@@ -30,25 +31,52 @@ export const providerPresets: Record<ProviderKind, Pick<Settings, "providerName"
   compatible: { providerName: "Custom compatible API", apiBase: "", apiProtocol: "chat_completions" },
 };
 
-export async function activeTab() {
-  // Clicking the side panel can make `currentWindow` resolve to the panel host
-  // rather than the page the user had open. Prefer the browser's last focused tab.
-  const lastFocused = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-  const current = lastFocused.length ? lastFocused : await chrome.tabs.query({ active: true, currentWindow: true });
-  const tab = current.find((item) => item.id !== undefined && /^https?:/.test(item.url ?? ""));
-  if (!tab?.url || tab.id === undefined) {
-    throw new Error("未识别到可采集网页。请先点击目标网页，再打开侧边栏并重试。");
-  }
-  return tab as chrome.tabs.Tab & { id: number; url: string };
+function webTab(tabs: chrome.tabs.Tab[]) {
+  return tabs.find((item) => item.id !== undefined && /^https?:\/\//i.test(item.url ?? ""));
 }
 
-export async function ensureCollector(tabId: number) {
-  await chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] });
+export async function activeTab(): Promise<ActiveWebTab> {
+  // A global side panel can outlive the action gesture that originally opened it,
+  // so do not rely on activeTab to expose sensitive Tab.url fields. The manifest
+  // requests the narrow `tabs` permission for URL discovery, then page access is
+  // still requested per-origin via optional_host_permissions.
+  const lastFocused = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  const fallback = lastFocused.length ? [] : await chrome.tabs.query({ active: true, currentWindow: true });
+  const tab = webTab(lastFocused) ?? webTab(fallback);
+  if (!tab?.url || tab.id === undefined) {
+    throw new Error("未识别到可采集网页。请先切换到普通 HTTP/HTTPS 页面后重试。");
+  }
+  return tab as ActiveWebTab;
+}
+
+function pageOriginPattern(pageUrl: string) {
+  const url = new URL(pageUrl);
+  if (!/^https?:$/.test(url.protocol)) throw new Error("Atlas 仅支持普通 HTTP/HTTPS 网页");
+  return `${url.origin}/*`;
+}
+
+export async function ensurePagePermission(pageUrl: string) {
+  const origin = pageOriginPattern(pageUrl);
+  if (await chrome.permissions.contains({ origins: [origin] })) return;
+  const granted = await chrome.permissions.request({ origins: [origin] });
+  if (!granted) {
+    throw new Error(`需要访问 ${new URL(pageUrl).host} 才能检查页面，请允许当前网站访问权限。`);
+  }
+}
+
+export async function ensureCollector(tab: ActiveWebTab) {
+  await ensurePagePermission(tab.url);
+  try {
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content.js"] });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`无法在当前页面启动采集器。请刷新页面后重试；如果仍失败，该页面可能禁止扩展脚本注入。${detail ? ` (${detail})` : ""}`);
+  }
 }
 
 export async function tabMessage<T>(message: ExtensionMessage): Promise<T> {
   const tab = await activeTab();
-  await ensureCollector(tab.id);
+  await ensureCollector(tab);
   const response = await chrome.tabs.sendMessage(tab.id, message);
   if (response?.error) throw new Error(response.error);
   return response as T;
