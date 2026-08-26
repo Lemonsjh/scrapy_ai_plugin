@@ -5,6 +5,7 @@ import { ExtractionPlanSchema } from "@atlas/shared";
 import { PlanEditor } from "./PlanEditor";
 import { ResultsView } from "./ResultsView";
 import { SettingsDrawer } from "./SettingsDrawer";
+import { AiDialogue, type DialogueEntry } from "./AiDialogue";
 import { activeTab, analyzePage, defaultSettings, getLatestJob, getRows, inspectPage, loadSettings, previewPlan, runtimeMessage, saveSettings, tabMessage, type Settings } from "./extension-api";
 
 type Step = "intent" | "plan" | "results";
@@ -31,6 +32,18 @@ export default function App() {
   const [rows, setRows] = useState<RowData[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [correction, setCorrection] = useState("");
+  const [dialogue, setDialogue] = useState<DialogueEntry[]>([{
+    id: "welcome", role: "atlas", text: "我会先在本地识别重复列表并清洗页面摘要，再生成可以逐项核对的采集规则。",
+    meta: "不会读取密码、表单输入、Cookie 或本地存储。",
+  }]);
+
+  const addDialogue = (entry: Omit<DialogueEntry, "id">) => {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    setDialogue((items) => [...items, { ...entry, id }].slice(-8));
+    return id;
+  };
+  const updateDialogue = (id: string, patch: Partial<DialogueEntry>) => setDialogue((items) => items.map((item) => item.id === id ? { ...item, ...patch } : item));
 
   useEffect(() => {
     void loadSettings().then(setSettings);
@@ -81,21 +94,54 @@ export default function App() {
 
   const inspect = async () => {
     setBusy("正在本地整理页面…"); setError(null);
-    try { setInspection(await inspectPage()); } catch (cause) { setError(cause instanceof Error ? cause.message : "页面检查失败"); }
+    addDialogue({ role: "user", text: intent.trim() });
+    const traceId = addDialogue({ role: "atlas", state: "working", text: "正在本地检查页面结构，寻找重复的列表行与可用字段。" });
+    try {
+      const result = await inspectPage(); setInspection(result);
+      updateDialogue(traceId, { state: "success", text: "本地页面检查完成，已生成可发送的脱敏摘要。", meta: `${result.summary.candidates} 个候选列表 · ${result.summary.characters.toLocaleString()} 字符 · ${result.summary.redactions} 处脱敏` });
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "页面检查失败";
+      setError(message); updateDialogue(traceId, { state: "error", text: "页面检查未完成。", meta: message });
+    }
     finally { setBusy(null); }
   };
 
   const parseWithAi = async () => {
     if (!inspection) return inspect();
     setBusy("AI 正在建立字段地图…"); setError(null);
+    const traceId = addDialogue({ role: "atlas", state: "working", text: "正在根据你的需求分析脱敏摘要，并生成声明式采集规则。", meta: `${settings.providerName} · ${settings.model}` });
     try {
       const tab = await activeTab();
       const result = await analyzePage({
         intent, page: { url: tab.url, title: tab.title ?? "", language: navigator.language }, snapshot: inspection.snapshot,
       }, settings);
       setPlan(result.plan); setWarnings(result.warnings); await updatePreview(result.plan); setStep("plan");
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "AI 解析失败"); }
+      updateDialogue(traceId, { state: "success", text: "规则已生成，并已在当前页面做了字段匹配预览。", meta: `${result.plan.fields.length} 个字段 · ${result.plan.rowSelectors.length} 个列表候选` });
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "AI 解析失败";
+      setError(message); updateDialogue(traceId, { state: "error", text: "AI 未能生成可用规则。", meta: message });
+    }
     finally { setBusy(null); }
+  };
+
+  const reviseWithAi = async () => {
+    if (!inspection || !plan || !correction.trim()) return;
+    const request = correction.trim();
+    setBusy("AI 正在修改规则…"); setError(null); setCorrection("");
+    addDialogue({ role: "user", text: request });
+    const traceId = addDialogue({ role: "atlas", state: "working", text: "正在以当前规则为基础处理你的修改要求。" });
+    try {
+      const tab = await activeTab();
+      const result = await analyzePage({
+        intent, page: { url: tab.url, title: tab.title ?? "", language: navigator.language }, snapshot: inspection.snapshot,
+        previousPlan: plan, correction: request,
+      }, settings);
+      setPlan(result.plan); setWarnings(result.warnings); await updatePreview(result.plan);
+      updateDialogue(traceId, { state: "success", text: "规则已根据你的要求更新，并重新完成字段预览。", meta: `${result.plan.fields.length} 个字段等待你确认` });
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "AI 修改失败";
+      setError(message); setCorrection(request); updateDialogue(traceId, { state: "error", text: "这次修改没有完成，原规则保持不变。", meta: message });
+    } finally { setBusy(null); }
   };
 
   const createManual = async () => {
@@ -152,6 +198,7 @@ export default function App() {
           <div className="snapshot-icon"><ShieldCheck size={20} /></div><div><b>发送前摘要</b><p>{inspection.summary.candidates} 个候选列表 · {inspection.summary.characters.toLocaleString()} 字符 · {inspection.summary.redactions} 处脱敏</p></div>
           <span className="safe-tag">LOCAL CLEAN</span>
         </section>}
+        <AiDialogue entries={dialogue} candidates={inspection?.summary.candidates} characters={inspection?.summary.characters} redactions={inspection?.summary.redactions} />
         {savedTemplate && <button className="template-callout" onClick={async () => {
           setIntent(savedTemplate.intent); setPlan(savedTemplate.plan); await updatePreview(savedTemplate.plan); setStep("plan");
         }}><span><b>发现当前站点模板</b><small>{savedTemplate.plan.fields.length} 个字段 · 一键复用</small></span><ChevronRight size={18} /></button>}
@@ -161,6 +208,8 @@ export default function App() {
       {step === "plan" && plan && <>
         <div className="page-heading"><button className="icon-button" onClick={() => setStep("intent")}><ArrowLeft size={18} /></button><div><span className="eyebrow">RULE REVIEW · 02</span><h1>确认采集规则</h1></div><button className="outline small" onClick={saveTemplate}><Save size={14} />模板</button></div>
         {warnings.map((warning, index) => <div className="warning-banner" key={index}>{warning}</div>)}
+        <AiDialogue entries={dialogue} candidates={inspection?.summary.candidates} characters={inspection?.summary.characters} redactions={inspection?.summary.redactions}
+          correction={correction} disabled={!!busy || !inspection} onCorrectionChange={setCorrection} onSendCorrection={reviseWithAi} />
         <PlanEditor plan={plan} matches={matches} onChange={(next) => { setPlan(next); void updatePreview(next); }}
           onPick={(fieldId) => void tabMessage({ type: "START_PICKER", fieldId })}
           onHighlight={(fieldId) => void tabMessage({ type: "HIGHLIGHT_FIELD", plan, fieldId })} />
