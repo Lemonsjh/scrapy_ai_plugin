@@ -127,6 +127,68 @@ function outputText(body: Record<string, unknown>) {
   throw new Error("模型没有返回结构化文本");
 }
 
+const safeTransforms = new Set(["trim", "parse_number", "parse_date", "absolute_url"]);
+const sourceAliases: Record<string, "text" | "html" | "href" | "src" | "attribute"> = {
+  text: "text", content: "text", textcontent: "text", html: "html", href: "href", link: "href", url: "href",
+  src: "src", image: "src", img: "src", attribute: "attribute", attr: "attribute",
+};
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function strings(value: unknown) {
+  return (Array.isArray(value) ? value : [value]).filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim());
+}
+
+function numberOr(value: unknown, fallback: number) {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function normalizePlan(input: unknown) {
+  const raw = record(input);
+  if (!raw) return null;
+  const rawFields = Array.isArray(raw.fields) ? raw.fields : [];
+  const fields = rawFields.map((value, index) => {
+    const field = record(value);
+    if (!field) return null;
+    const source = sourceAliases[String(field.source ?? "text").toLowerCase()] ?? "text";
+    const selectors = strings(field.selectors ?? field.selector ?? field.cssSelector).slice(0, 5);
+    if (!selectors.length) return null;
+    const transforms = strings(field.transforms).filter((type) => safeTransforms.has(type)).map((type) => ({ type }));
+    if (!transforms.length) transforms.push({ type: source === "href" || source === "src" ? "absolute_url" : "trim" });
+    const id = String(field.id ?? field.key ?? `field_${index + 1}`).replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80) || `field_${index + 1}`;
+    const normalized = {
+      id, name: String(field.name ?? field.label ?? `字段 ${index + 1}`).slice(0, 80), selectors, source,
+      required: field.required === true || field.required === "true",
+      confidence: Math.min(1, Math.max(0, numberOr(field.confidence, 0.7))), transforms,
+      ...(source === "attribute" && typeof field.attribute === "string" ? { attribute: field.attribute.slice(0, 80) } : {}),
+    };
+    return source === "attribute" && !normalized.attribute ? { ...normalized, source: "text" as const } : normalized;
+  }).filter((field): field is NonNullable<typeof field> => !!field);
+  if (!fields.length) return null;
+  const pagination = record(raw.pagination) ?? {};
+  const pageType = pagination.type;
+  const normalizedPagination = pageType === "next_button" && strings(pagination.selectors).length
+    ? { type: "next_button" as const, selectors: strings(pagination.selectors).slice(0, 5) }
+    : pageType === "infinite_scroll"
+      ? { type: "infinite_scroll" as const, idleMs: Math.max(300, Math.min(10_000, numberOr(pagination.idleMs, 1500))), maxNoChangeRounds: Math.max(1, Math.min(10, numberOr(pagination.maxNoChangeRounds, 3)) ) }
+      : { type: "none" as const };
+  const limits = record(raw.limits) ?? {};
+  return {
+    mode: "list" as const, rowSelectors: strings(raw.rowSelectors ?? raw.rowSelector ?? raw.listSelector).slice(0, 5), fields,
+    pagination: normalizedPagination, filters: [],
+    limits: {
+      maxPages: Math.max(1, Math.min(100, numberOr(limits.maxPages, 10))), maxRows: Math.max(1, Math.min(100_000, numberOr(limits.maxRows, 1000))),
+      maxDurationMs: Math.max(5_000, Math.min(86_400_000, numberOr(limits.maxDurationMs, 600_000))), delayMs: Math.max(0, Math.min(60_000, numberOr(limits.delayMs, 1000))),
+    }, deduplicateBy: strings(raw.deduplicateBy).slice(0, 10),
+  };
+}
+
+function invalidPlanError() {
+  return new Error("模型返回的采集规则不完整，Atlas 已拒绝执行。请改用支持结构化输出的模型，或在对话中要求“只返回完整采集规则”。");
+}
+
 export function parseAiPlanOutput(text: string) {
   let parsed: unknown;
   try {
@@ -149,7 +211,14 @@ export function parseAiPlanOutput(text: string) {
     };
   }
 
-  throw standard.error;
+  const envelope = record(parsed);
+  const recovered = normalizePlan(envelope?.plan ?? parsed);
+  const normalized = recovered && AiPlanOutputSchema.safeParse({
+    plan: recovered,
+    warnings: [...strings(envelope?.warnings), "兼容模型省略了部分安全默认项，Atlas 已补全；请核对字段后再开始采集。"],
+  });
+  if (normalized?.success) return normalized.data;
+  throw invalidPlanError();
 }
 
 async function directPlan(request: AiPlanRequest, settings: Settings) {

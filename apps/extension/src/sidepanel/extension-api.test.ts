@@ -93,7 +93,16 @@ describe("compatible AI output", () => {
     expect(output.warnings[0]).toContain("裸采集规则");
   });
 
+  it("repairs common omitted defaults from compatible providers", () => {
+    const output = parseAiPlanOutput(JSON.stringify({ plan: {
+      rowSelector: ".movie", fields: [{ label: "电影名", selector: ".title", source: "content" }],
+    }, warnings: [] }));
+    expect(output.plan.fields[0]).toMatchObject({ name: "电影名", source: "text", required: false, confidence: 0.7 });
+    expect(output.plan.fields[0]?.transforms).toEqual([{ type: "trim" }]);
+    expect(output.plan.limits.maxPages).toBe(10);
+  });
+
   it("rejects unrelated JSON objects", () => {
-    expect(() => parseAiPlanOutput(JSON.stringify({ foo: "bar" }))).toThrow();
+    expect(() => parseAiPlanOutput(JSON.stringify({ foo: "bar" }))).toThrow("模型返回的采集规则不完整");
   });
 });

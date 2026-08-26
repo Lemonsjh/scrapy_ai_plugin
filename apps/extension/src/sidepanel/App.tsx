@@ -17,6 +17,11 @@ const manualPlan = (): ExtractionPlan => ({
   limits: { maxPages: 10, maxRows: 1000, maxDurationMs: 600000, delayMs: 1000 }, deduplicateBy: [],
 });
 
+function readableError(cause: unknown, fallback: string) {
+  const message = cause instanceof Error ? cause.message : fallback;
+  return message.length > 240 ? `${message.slice(0, 237)}…` : message;
+}
+
 export default function App() {
   const [step, setStep] = useState<Step>("intent");
   const [intent, setIntent] = useState("采集本页所有商品的名称、到手价、销量和详情链接，最多十页");
@@ -89,7 +94,7 @@ export default function App() {
     try {
       const result = await previewPlan(nextPlan);
       setMatches(result.matches); setPreviewRows(result.rows);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "预览失败"); }
+    } catch (cause) { setError(readableError(cause, "预览失败")); }
   };
 
   const inspect = async () => {
@@ -100,7 +105,7 @@ export default function App() {
       const result = await inspectPage(); setInspection(result);
       updateDialogue(traceId, { state: "success", text: "本地页面检查完成，已生成可发送的脱敏摘要。", meta: `${result.summary.candidates} 个候选列表 · ${result.summary.characters.toLocaleString()} 字符 · ${result.summary.redactions} 处脱敏` });
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : "页面检查失败";
+      const message = readableError(cause, "页面检查失败");
       setError(message); updateDialogue(traceId, { state: "error", text: "页面检查未完成。", meta: message });
     }
     finally { setBusy(null); }
@@ -118,7 +123,7 @@ export default function App() {
       setPlan(result.plan); setWarnings(result.warnings); await updatePreview(result.plan); setStep("plan");
       updateDialogue(traceId, { state: "success", text: "规则已生成，并已在当前页面做了字段匹配预览。", meta: `${result.plan.fields.length} 个字段 · ${result.plan.rowSelectors.length} 个列表候选` });
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : "AI 解析失败";
+      const message = readableError(cause, "AI 解析失败");
       setError(message); updateDialogue(traceId, { state: "error", text: "AI 未能生成可用规则。", meta: message });
     }
     finally { setBusy(null); }
@@ -139,7 +144,7 @@ export default function App() {
       setPlan(result.plan); setWarnings(result.warnings); await updatePreview(result.plan);
       updateDialogue(traceId, { state: "success", text: "规则已根据你的要求更新，并重新完成字段预览。", meta: `${result.plan.fields.length} 个字段等待你确认` });
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : "AI 修改失败";
+      const message = readableError(cause, "AI 修改失败");
       setError(message); setCorrection(request); updateDialogue(traceId, { state: "error", text: "这次修改没有完成，原规则保持不变。", meta: message });
     } finally { setBusy(null); }
   };
@@ -159,7 +164,7 @@ export default function App() {
       const tab = await activeTab();
       const created = await runtimeMessage<JobRecord>({ type: "START_JOB", plan: parsed.data, url: tab.url });
       setJob(created); setRows([]); setStep("results");
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "任务启动失败"); }
+    } catch (cause) { setError(readableError(cause, "任务启动失败")); }
     finally { setBusy(null); }
   };
 
