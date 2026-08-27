@@ -44,6 +44,7 @@ h1, h2, p { margin: 0; }
 .card-label { height: 39px; display: flex; align-items: center; gap: 7px; padding: 0 14px; border-bottom: 1px solid #ffffff24; font-size: 11px; }
 .card-label small { margin-left: auto; color: #8f938a; }
 .intent-card textarea { width: 100%; min-height: 126px; resize: vertical; border: 0; outline: 0; background: transparent; color: #f8f4e8; padding: 18px 15px; line-height: 1.65; font-size: 14px; }
+.intent-card textarea::placeholder { color: #9ba095; opacity: 1; }
 .intent-actions { display: flex; align-items: center; justify-content: space-between; padding: 10px; }
 .primary, .outline, .text-button { border: 0; display: inline-flex; align-items: center; justify-content: center; gap: 7px; font-weight: 700; font-size: 12px; }
 .primary { background: var(--acid); color: var(--ink); padding: 12px 15px; border-radius: 3px 3px 12px 3px; box-shadow: 3px 3px 0 #657526; }

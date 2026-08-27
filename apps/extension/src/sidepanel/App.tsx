@@ -24,7 +24,7 @@ function readableError(cause: unknown, fallback: string) {
 
 export default function App() {
   const [step, setStep] = useState<Step>("intent");
-  const [intent, setIntent] = useState("采集本页所有商品的名称、到手价、销量和详情链接，最多十页");
+  const [intent, setIntent] = useState("");
   const [settings, setSettings] = useState<Settings>(defaultSettings);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [savedTemplate, setSavedTemplate] = useState<{ plan: ExtractionPlan; intent: string } | null>(null);
@@ -192,7 +192,7 @@ export default function App() {
         <section className="intro"><span className="eyebrow">INTENT CONSOLE · 01</span><h1>说出你要的<br/><em>数据形状。</em></h1><p>Atlas 会在本地压缩页面结构，再让 AI 生成可检查、可修正的采集规则。</p></section>
         <section className="intent-card">
           <div className="card-label"><Bot size={15} /><span>采集需求</span><small>{intent.length}/2000</small></div>
-          <textarea value={intent} maxLength={2000} onChange={(event) => setIntent(event.target.value)} />
+          <textarea value={intent} maxLength={2000} placeholder="例如：采集电影名、评分、评价人数和链接，最多 3 页" onChange={(event) => setIntent(event.target.value)} />
           <div className="intent-actions"><button className="text-button" onClick={createManual}><Crosshair size={15} />手动创建</button>
             <button className="primary" disabled={!!busy || intent.trim().length < 3} onClick={inspection ? parseWithAi : inspect}>
               {busy ? <LoaderCircle className="spin" size={17} /> : inspection ? <Sparkles size={17} /> : <ScanSearch size={17} />}
