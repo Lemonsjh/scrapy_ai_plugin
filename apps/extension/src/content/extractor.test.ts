@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from "vitest";
 import type { ExtractionPlan } from "@atlas/shared";
-import { applyTransforms, extractRows } from "./extractor";
+import { applyTransforms, extractDetailDocument, extractRows } from "./extractor";
 import { selectorCandidates } from "./selectors";
 
 const plan: ExtractionPlan = {
@@ -23,4 +23,12 @@ describe("deterministic extractor", () => {
   it("applies numeric scales and filters", () => expect(extractRows(plan).rows).toEqual([{ title: "B", price: 12000 }]));
   it("normalizes relative URLs", () => expect(applyTransforms("/p/1", [{ type: "absolute_url" }], "https://example.com/a")).toBe("https://example.com/p/1"));
   it("prefers stable semantic attributes", () => expect(selectorCandidates(document.querySelector("h2")!)[0]).toContain("data-testid"));
+  it("extracts article text from a fetched detail document", () => {
+    const document = new DOMParser().parseFromString("<article><p> 正文内容 </p></article>", "text/html");
+    const result = extractDetailDocument(document, {
+      linkFieldId: "title", maxItems: 10, delayMs: 0,
+      fields: [{ id: "content", name: "正文", selectors: ["article"], source: "text", required: true, confidence: 1, transforms: [{ type: "trim" }] }],
+    }, "https://example.com/news/1");
+    expect(result).toEqual({ data: { content: "正文内容" }, errors: [] });
+  });
 });

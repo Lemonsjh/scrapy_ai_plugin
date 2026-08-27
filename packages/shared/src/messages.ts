@@ -11,6 +11,8 @@ export interface JobRecord {
   status: JobStatus;
   page: number;
   rowCount: number;
+  detailCount?: number;
+  detailFailed?: number;
   startedAt: number;
   updatedAt: number;
   error?: string;
@@ -24,12 +26,13 @@ export interface FieldMatch {
 export type ExtensionMessage =
   | { type: "SNAPSHOT_PAGE" }
   | { type: "PREVIEW_PLAN"; plan: ExtractionPlan }
+  | { type: "PREVIEW_DETAIL"; plan: ExtractionPlan }
   | { type: "HIGHLIGHT_FIELD"; plan: ExtractionPlan; fieldId: string }
   | { type: "START_PICKER"; fieldId: string }
   | { type: "PICKER_RESULT"; fieldId: string; selectors: string[]; sample: string }
   | { type: "START_JOB"; plan: ExtractionPlan; url: string }
   | { type: "RUN_JOB"; job: JobRecord }
-  | { type: "JOB_BATCH"; jobId: string; rows: RowData[]; page: number }
+  | { type: "JOB_BATCH"; jobId: string; rows: RowData[]; page: number; detailCount?: number; detailFailed?: number }
   | { type: "JOB_EVENT"; jobId: string; status: JobStatus; error?: string }
   | { type: "GET_JOB"; jobId?: string }
   | { type: "GET_ROWS"; jobId: string }

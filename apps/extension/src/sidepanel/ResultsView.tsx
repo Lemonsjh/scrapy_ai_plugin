@@ -1,5 +1,5 @@
 import { CirclePause, CirclePlay, Download, FileJson, FileSpreadsheet, Square, Table2 } from "lucide-react";
-import type { ExtractionPlan, JobRecord, RowData } from "@atlas/shared";
+import { planFields, type ExtractionPlan, type JobRecord, type RowData } from "@atlas/shared";
 
 interface Props {
   job: JobRecord;
@@ -17,8 +17,10 @@ export function ResultsView({ job, rows, onControl, onExport }: Props) {
   return <>
     <section className="job-hero">
       <div className={`pulse ${job.status}`} /><div><span className="eyebrow">LIVE JOB</span><h2>{statusLabel[job.status]}</h2></div>
-      <div className="job-numbers"><b>{job.rowCount}</b><span>ROWS</span><b>{job.page}</b><span>PAGE</span></div>
+      <div className="job-numbers"><b>{job.rowCount}</b><span>ROWS</span><b>{job.page}</b><span>PAGE</span>
+        {plan.detail && <><b>{job.detailCount ?? 0}</b><span>DETAIL</span></>}</div>
     </section>
+    {plan.detail && (job.detailFailed ?? 0) > 0 && <div className="warning-banner">{job.detailFailed} 篇详情页未能读取，相关字段已保留为空。</div>}
     {job.error && <div className="error-banner">{job.error}</div>}
     <div className="toolbar">
       {job.status === "running" && <button className="outline" onClick={() => onControl("pause")}><CirclePause size={16} />暂停</button>}
@@ -28,8 +30,8 @@ export function ResultsView({ job, rows, onControl, onExport }: Props) {
     <section className="data-panel">
       <div className="section-heading compact"><div><span className="eyebrow">DATA GRID</span><h2>采集结果</h2></div><Table2 size={20} /></div>
       <div className="table-scroll">
-        <table><thead><tr>{plan.fields.map((field) => <th key={field.id}>{field.name}</th>)}</tr></thead>
-          <tbody>{rows.slice(0, 100).map((row, index) => <tr key={index}>{plan.fields.map((field) => <td key={field.id}>{String(row[field.id] ?? "—")}</td>)}</tr>)}</tbody>
+        <table><thead><tr>{planFields(plan).map((field) => <th key={field.id}>{field.name}</th>)}</tr></thead>
+          <tbody>{rows.slice(0, 100).map((row, index) => <tr key={index}>{planFields(plan).map((field) => <td key={field.id}>{String(row[field.id] ?? "—")}</td>)}</tr>)}</tbody>
         </table>
         {!rows.length && <div className="empty-data">等待第一批数据…</div>}
       </div>

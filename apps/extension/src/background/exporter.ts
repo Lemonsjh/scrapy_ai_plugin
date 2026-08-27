@@ -1,8 +1,8 @@
-import type { ExtractionPlan, RowData } from "@atlas/shared";
+import { planFields, type ExtractionPlan, type RowData } from "@atlas/shared";
 import * as XLSX from "xlsx";
 
 function mappedRows(rows: RowData[], plan: ExtractionPlan) {
-  return rows.map((row) => Object.fromEntries(plan.fields.map((field) => [field.name, row[field.id] ?? ""])));
+  return rows.map((row) => Object.fromEntries(planFields(plan).map((field) => [field.name, row[field.id] ?? ""])));
 }
 
 function csvEscape(value: unknown) {
@@ -25,7 +25,7 @@ export function createExport(rows: RowData[], plan: ExtractionPlan, format: "csv
     return { url: `data:application/json;charset=utf-8,${encodeURIComponent(text)}`, extension: "json" };
   }
   if (format === "csv") {
-    const headers = plan.fields.map((field) => field.name);
+    const headers = planFields(plan).map((field) => field.name);
     const lines = [headers.map(csvEscape).join(","), ...mapped.map((row) => headers.map((header) => csvEscape(row[header])).join(","))];
     return { url: `data:text/csv;charset=utf-8,${encodeURIComponent(`\uFEFF${lines.join("\r\n")}`)}`, extension: "csv" };
   }

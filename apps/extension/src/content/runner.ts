@@ -1,5 +1,5 @@
 import type { ExtensionMessage, JobRecord, RowData } from "@atlas/shared";
-import { extractRows, fingerprint } from "./extractor";
+import { extractDetailDocument, extractRows, fingerprint } from "./extractor";
 import { queryFirst } from "./selectors";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -31,7 +31,33 @@ async function send(message: ExtensionMessage) {
 }
 
 function limitRows(rows: RowData[], job: JobRecord) {
-  return rows.slice(0, Math.max(0, job.plan.limits.maxRows - job.rowCount));
+  const maxRows = Math.min(job.plan.limits.maxRows, job.plan.detail?.maxItems ?? Number.POSITIVE_INFINITY);
+  return rows.slice(0, Math.max(0, maxRows - job.rowCount));
+}
+
+async function enrichDetails(rows: RowData[], job: JobRecord) {
+  const detail = job.plan.detail;
+  if (!detail) return { rows, count: 0, failed: 0 };
+  const enriched: RowData[] = [];
+  let failed = 0;
+  for (const row of rows) {
+    while (paused && !cancelled) await sleep(250);
+    const empty = Object.fromEntries(detail.fields.map((field) => [field.id, null]));
+    const href = row[detail.linkFieldId];
+    try {
+      const url = new URL(String(href ?? ""), location.href);
+      if (url.origin !== location.origin) throw new Error("详情链接不在当前站点");
+      const response = await fetch(url.href, { credentials: "include" });
+      if (!response.ok) throw new Error(`详情页返回 ${response.status}`);
+      const document = new DOMParser().parseFromString(await response.text(), "text/html");
+      enriched.push({ ...row, ...empty, ...extractDetailDocument(document, detail, url.href).data });
+    } catch {
+      failed += 1;
+      enriched.push({ ...row, ...empty });
+    }
+    if (!cancelled) await sleep(detail.delayMs);
+  }
+  return { rows: enriched, count: enriched.length, failed };
 }
 
 export async function runJob(job: JobRecord) {
@@ -48,12 +74,13 @@ export async function runJob(job: JobRecord) {
       while (paused && !cancelled) await sleep(250);
       const extracted = extractRows(job.plan);
       const currentFingerprint = fingerprint(extracted.rows);
-      const rows = limitRows(extracted.rows, job);
+      const batch = await enrichDetails(limitRows(extracted.rows, job), job);
+      const rows = batch.rows;
       if (rows.length) {
-        const result = await send({ type: "JOB_BATCH", jobId: job.id, rows, page });
+        const result = await send({ type: "JOB_BATCH", jobId: job.id, rows, page, detailCount: batch.count, detailFailed: batch.failed });
         job.rowCount = Number(result?.rowCount ?? job.rowCount + rows.length);
       }
-      if (job.rowCount >= job.plan.limits.maxRows) break;
+      if (job.rowCount >= Math.min(job.plan.limits.maxRows, job.plan.detail?.maxItems ?? Number.POSITIVE_INFINITY)) break;
 
       const pagination = job.plan.pagination;
       if (pagination.type === "none") break;

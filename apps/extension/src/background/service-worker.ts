@@ -38,7 +38,7 @@ chrome.runtime.onMessage.addListener((raw: ExtensionMessage, sender, respond) =>
         const now = Date.now();
         const job: JobRecord = {
           id: crypto.randomUUID(), tabId, url: raw.url, plan: parsed, status: "running",
-          page: 1, rowCount: 0, startedAt: now, updatedAt: now,
+          page: 1, rowCount: 0, detailCount: 0, detailFailed: 0, startedAt: now, updatedAt: now,
         };
         await putJob(job);
         await sendToTab(tabId, { type: "RUN_JOB", job });
@@ -48,6 +48,8 @@ chrome.runtime.onMessage.addListener((raw: ExtensionMessage, sender, respond) =>
         const job = await getJob(raw.jobId);
         if (!job || job.status !== "running") return { rowCount: job?.rowCount ?? 0 };
         job.page = raw.page;
+        job.detailCount = (job.detailCount ?? 0) + (raw.detailCount ?? 0);
+        job.detailFailed = (job.detailFailed ?? 0) + (raw.detailFailed ?? 0);
         const updated = await addRows(job, raw.rows);
         chrome.runtime.sendMessage({ type: "JOB_EVENT", jobId: job.id, status: updated.status }).catch(() => undefined);
         return { rowCount: updated.rowCount };

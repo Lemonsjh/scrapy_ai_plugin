@@ -46,6 +46,13 @@ export const FilterRuleSchema = z.object({
   value: z.union([z.string().max(500), z.number(), z.boolean()]),
 });
 
+export const DetailPlanSchema = z.object({
+  linkFieldId: z.string().min(1).max(80),
+  fields: z.array(FieldRuleSchema).min(1).max(20),
+  maxItems: z.number().int().min(1).max(1_000),
+  delayMs: z.number().int().min(0).max(60_000),
+});
+
 export const ExtractionPlanSchema = z.object({
   mode: z.literal("list"),
   rowSelectors: z.array(selector).min(1).max(5),
@@ -59,6 +66,13 @@ export const ExtractionPlanSchema = z.object({
     delayMs: z.number().int().min(0).max(60_000),
   }),
   deduplicateBy: z.array(z.string().min(1).max(80)).max(10),
+  detail: DetailPlanSchema.optional(),
+}).superRefine((plan, ctx) => {
+  if (plan.detail && !plan.fields.some((field) => field.id === plan.detail!.linkFieldId)) {
+    ctx.addIssue({ code: "custom", path: ["detail", "linkFieldId"], message: "detail linkFieldId must reference a list field" });
+  }
+  const ids = [...plan.fields, ...(plan.detail?.fields ?? [])].map((field) => field.id);
+  if (new Set(ids).size !== ids.length) ctx.addIssue({ code: "custom", path: ["detail", "fields"], message: "field ids must be unique" });
 });
 
 export const SemanticNodeSchema: z.ZodType<SemanticNode> = z.lazy(() => z.object({
@@ -117,8 +131,13 @@ export type TransformRule = z.infer<typeof TransformRuleSchema>;
 export type FieldRule = z.infer<typeof FieldRuleSchema>;
 export type PaginationRule = z.infer<typeof PaginationRuleSchema>;
 export type FilterRule = z.infer<typeof FilterRuleSchema>;
+export type DetailPlan = z.infer<typeof DetailPlanSchema>;
 export type ExtractionPlan = z.infer<typeof ExtractionPlanSchema>;
 export type SemanticPageSnapshot = z.infer<typeof SemanticPageSnapshotSchema>;
 export type AiPlanRequest = z.infer<typeof AiPlanRequestSchema>;
 export type AiPlanOutput = z.infer<typeof AiPlanOutputSchema>;
 export type AiPlanResponse = z.infer<typeof AiPlanResponseSchema>;
+
+export function planFields(plan: ExtractionPlan) {
+  return [...plan.fields, ...(plan.detail?.fields ?? [])];
+}

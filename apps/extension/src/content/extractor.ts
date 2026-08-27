@@ -1,4 +1,4 @@
-import type { ExtractionPlan, FieldRule, RowData, TransformRule } from "@atlas/shared";
+import type { DetailPlan, ExtractionPlan, FieldRule, RowData, TransformRule } from "@atlas/shared";
 import { queryAllFirst, queryFirst } from "./selectors";
 
 function sourceValue(element: Element, field: FieldRule) {
@@ -73,6 +73,21 @@ export function extractRows(plan: ExtractionPlan) {
     return left <= right;
   }));
   return { rows, errors };
+}
+
+export function extractDetailDocument(document: Document, detail: DetailPlan, baseUrl: string) {
+  const data: RowData = {};
+  const errors: string[] = [];
+  for (const field of detail.fields) {
+    const element = queryFirst(document, field.selectors);
+    if (!element) {
+      data[field.id] = null;
+      if (field.required) errors.push(`详情页缺少“${field.name}”`);
+      continue;
+    }
+    data[field.id] = applyTransforms(sourceValue(element, field), field.transforms, baseUrl);
+  }
+  return { data, errors };
 }
 
 export function previewPlan(plan: ExtractionPlan) {
