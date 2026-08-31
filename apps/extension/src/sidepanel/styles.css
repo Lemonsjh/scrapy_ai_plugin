@@ -46,6 +46,7 @@ h1, h2, p { margin: 0; }
 .intent-card textarea { width: 100%; min-height: 126px; resize: vertical; border: 0; outline: 0; background: transparent; color: #f8f4e8; padding: 18px 15px; line-height: 1.65; font-size: 14px; }
 .intent-card textarea::placeholder { color: #9ba095; opacity: 1; }
 .intent-actions { display: flex; align-items: center; justify-content: space-between; padding: 10px; }
+.intent-actions > span { display: flex; align-items: center; }.intent-actions .text-button { padding: 8px 6px; font-size: 10px; }
 .primary, .outline, .text-button { border: 0; display: inline-flex; align-items: center; justify-content: center; gap: 7px; font-weight: 700; font-size: 12px; }
 .primary { background: var(--acid); color: var(--ink); padding: 12px 15px; border-radius: 3px 3px 12px 3px; box-shadow: 3px 3px 0 #657526; }
 .primary:hover { transform: translate(-1px,-1px); box-shadow: 5px 5px 0 #657526; }
@@ -55,6 +56,7 @@ h1, h2, p { margin: 0; }
 .outline:hover { border-color: var(--ink); }
 .outline.small { padding: 8px 10px; font-size: 10px; }
 .snapshot-card { margin-top: 23px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 15px 2px; display: flex; gap: 11px; align-items: center; }
+.scope-card { margin-top: 18px; padding: 13px; border: 1px solid #acbd62; background: #eff4d6; }.scope-card h2 { font: 750 19px Bahnschrift, sans-serif; margin-top: 3px; }.scope-card p { font-size: 9px; line-height: 1.5; color: var(--muted); margin-top: 5px; }.scope-card button { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; text-align: left; border: 1px solid #c3ca99; background: #fff; padding: 10px; margin-top: 8px; }.scope-card button:hover { border-color: #657526; }.scope-card button span { min-width: 0; display: flex; flex-direction: column; gap: 3px; }.scope-card button b { font-size: 10px; }.scope-card button small { overflow: hidden; color: var(--muted); font-size: 8px; white-space: nowrap; text-overflow: ellipsis; }
 .snapshot-icon { width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid #8a9c48; color: #667a22; border-radius: 50%; }
 .snapshot-card b { font: 700 11px Bahnschrift, sans-serif; }
 .snapshot-card p { font-size: 9px; color: var(--muted); margin-top: 4px; }

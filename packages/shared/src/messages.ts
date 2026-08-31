@@ -23,6 +23,13 @@ export interface FieldMatch {
   count: number;
 }
 
+export interface ScopeCandidate {
+  rowSelector: string;
+  count: number;
+  sample: string;
+  hasLink: boolean;
+}
+
 export type ExtensionMessage =
   | { type: "SNAPSHOT_PAGE" }
   | { type: "PREVIEW_PLAN"; plan: ExtractionPlan }
@@ -30,6 +37,8 @@ export type ExtensionMessage =
   | { type: "HIGHLIGHT_FIELD"; plan: ExtractionPlan; fieldId: string }
   | { type: "START_PICKER"; fieldId: string }
   | { type: "PICKER_RESULT"; fieldId: string; selectors: string[]; sample: string }
+  | { type: "START_SCOPE_PICKER" }
+  | { type: "SCOPE_RESULT"; candidates: ScopeCandidate[] }
   | { type: "START_JOB"; plan: ExtractionPlan; url: string }
   | { type: "RUN_JOB"; job: JobRecord }
   | { type: "JOB_BATCH"; jobId: string; rows: RowData[]; page: number; detailCount?: number; detailFailed?: number }

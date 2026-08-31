@@ -1,6 +1,6 @@
 import { ArrowLeft, ArrowRight, Bot, Check, ChevronRight, Crosshair, Database, LoaderCircle, Save, ScanSearch, Settings as SettingsIcon, ShieldCheck, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { ExtractionPlan, FieldMatch, JobRecord, RowData, SemanticPageSnapshot, SnapshotResponse } from "@atlas/shared";
+import type { ExtractionPlan, FieldMatch, JobRecord, RowData, ScopeCandidate, SemanticPageSnapshot, SnapshotResponse } from "@atlas/shared";
 import { ExtractionPlanSchema } from "@atlas/shared";
 import { PlanEditor } from "./PlanEditor";
 import { ResultsView } from "./ResultsView";
@@ -47,6 +47,7 @@ export default function App() {
   const [rows, setRows] = useState<RowData[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [scopeCandidates, setScopeCandidates] = useState<ScopeCandidate[]>([]);
   const [correction, setCorrection] = useState("");
   const [dialogue, setDialogue] = useState<DialogueEntry[]>([{
     id: "welcome", role: "atlas", text: "我会先在本地识别重复列表并清洗页面摘要，再生成可以逐项核对的采集规则。",
@@ -88,7 +89,13 @@ export default function App() {
   }, [step, job?.id, refreshJob]);
 
   useEffect(() => {
-    const listener = (message: { type?: string; fieldId?: string; selectors?: string[] }) => {
+    const listener = (message: { type?: string; fieldId?: string; selectors?: string[]; candidates?: ScopeCandidate[] }) => {
+      if (message.type === "SCOPE_RESULT") {
+        const candidates = message.candidates ?? [];
+        setScopeCandidates(candidates);
+        addDialogue({ role: "atlas", state: candidates.length ? "success" : "error", text: candidates.length ? `已在选区内找到 ${candidates.length} 组重复内容，可直接创建采集规则。` : "选区内没有找到重复新闻项，请点选更靠近新闻列表的容器。" });
+        return;
+      }
       if (message.type !== "PICKER_RESULT" || !plan || !message.fieldId || !message.selectors) return;
       const updated = message.fieldId === "__row__"
         ? { ...plan, rowSelectors: message.selectors }
@@ -165,6 +172,17 @@ export default function App() {
     const next = manualPlan(); setPlan(next); setWarnings(["手动模式：请先点选列表行，再逐个点选字段。"]); setStep("plan"); await updatePreview(next);
   };
 
+  const createFromScope = async (candidate: ScopeCandidate) => {
+    const fields: ExtractionPlan["fields"] = [{ id: "title", name: "新闻标题", selectors: candidate.hasLink ? ["a"] : ["a", "h3", "h2", "p"], source: "text", required: true, confidence: 1, transforms: [{ type: "trim" }] }];
+    if (candidate.hasLink) fields.push({ id: "link", name: "文章链接", selectors: ["a[href]"], source: "href", required: true, confidence: 1, transforms: [{ type: "absolute_url" }] });
+    const next: ExtractionPlan = {
+      mode: "list", rowSelectors: [candidate.rowSelector], fields, pagination: { type: "none" }, filters: [],
+      limits: { maxPages: 1, maxRows: candidate.count, maxDurationMs: 600000, delayMs: 1000 }, deduplicateBy: ["title"],
+      ...(candidate.hasLink ? { detail: { linkFieldId: "link", maxItems: candidate.count, delayMs: 400, fields: [{ id: "detail_content", name: "正文", selectors: ["article", "main", "[role='main']", ".article-content", ".content"], source: "text", required: false, confidence: 0.5, transforms: [{ type: "trim" }] }] } } : {}),
+    };
+    setPlan(next); setWarnings([`快速选区：已锁定 ${candidate.count} 条内容；未调用 AI。${candidate.hasLink ? "已同时启用同域正文采集。" : "未找到稳定文章链接，仅采集容器内文本。"}`]); setScopeCandidates([]); setStep("plan"); await updatePreview(next);
+  };
+
   const startJob = async () => {
     if (!plan) return;
     const parsed = ExtractionPlanSchema.safeParse(plan);
@@ -205,12 +223,14 @@ export default function App() {
         <section className="intent-card">
           <div className="card-label"><Bot size={15} /><span>采集需求</span><small>{intent.length}/2000</small></div>
           <textarea value={intent} maxLength={2000} placeholder="例如：采集电影名、评分、评价人数和链接，最多 3 页" onChange={(event) => setIntent(event.target.value)} />
-          <div className="intent-actions"><button className="text-button" onClick={createManual}><Crosshair size={15} />手动创建</button>
+          <div className="intent-actions"><span><button className="text-button" onClick={createManual}><Crosshair size={15} />手动创建</button><button className="text-button" disabled={!!busy} onClick={() => void tabMessage({ type: "START_SCOPE_PICKER" })}><Crosshair size={15} />快速选区</button></span>
             <button className="primary" disabled={!!busy || intent.trim().length < 3} onClick={inspection ? parseWithAi : inspect}>
               {busy ? <LoaderCircle className="spin" size={17} /> : inspection ? <Sparkles size={17} /> : <ScanSearch size={17} />}
               {busy ?? (inspection ? "AI 解析" : "检查页面")}<ArrowRight size={16} />
             </button></div>
         </section>
+        {scopeCandidates.length > 0 && <section className="scope-card"><div><span className="eyebrow">LOCAL SCOPE MATCH</span><h2>选择新闻列表</h2><p>以下候选仅来自你刚才点击的容器，不会调用 AI。</p></div>
+          {scopeCandidates.map((candidate) => <button key={candidate.rowSelector} onClick={() => void createFromScope(candidate)}><span><b>{candidate.count} 条{candidate.hasLink ? "新闻链接" : "文本项"}</b><small>{candidate.sample}</small></span><ChevronRight size={16} /></button>)}</section>}
         {inspection && <section className="snapshot-card">
           <div className="snapshot-icon"><ShieldCheck size={20} /></div><div><b>发送前摘要</b><p>{inspection.summary.candidates} 个候选列表 · {inspection.summary.characters.toLocaleString()} 字符 · {inspection.summary.redactions} 处脱敏</p></div>
           <span className="safe-tag">LOCAL CLEAN</span>
