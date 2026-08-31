@@ -20,7 +20,7 @@ export function ResultsView({ job, rows, onControl, onExport }: Props) {
       <div className="job-numbers"><b>{job.rowCount}</b><span>ROWS</span><b>{job.page}</b><span>PAGE</span>
         {plan.detail && <><b>{job.detailCount ?? 0}</b><span>DETAIL</span></>}</div>
     </section>
-    {plan.detail && (job.detailFailed ?? 0) > 0 && <div className="warning-banner">{job.detailFailed} 篇详情页未能读取，相关字段已保留为空。</div>}
+    {plan.detail && (job.detailFailed ?? 0) > 0 && <div className="warning-banner">{job.detailFailed} 篇详情页未能读取，相关字段已保留为空。{job.detailError ? ` 最近原因：${job.detailError}` : ""}</div>}
     {job.error && <div className="error-banner">{job.error}</div>}
     <div className="toolbar">
       {job.status === "running" && <button className="outline" onClick={() => onControl("pause")}><CirclePause size={16} />暂停</button>}

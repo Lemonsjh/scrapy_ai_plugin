@@ -13,6 +13,7 @@ export interface JobRecord {
   rowCount: number;
   detailCount?: number;
   detailFailed?: number;
+  detailError?: string;
   startedAt: number;
   updatedAt: number;
   error?: string;
@@ -41,7 +42,7 @@ export type ExtensionMessage =
   | { type: "SCOPE_RESULT"; candidates: ScopeCandidate[] }
   | { type: "START_JOB"; plan: ExtractionPlan; url: string }
   | { type: "RUN_JOB"; job: JobRecord }
-  | { type: "JOB_BATCH"; jobId: string; rows: RowData[]; page: number; detailCount?: number; detailFailed?: number }
+  | { type: "JOB_BATCH"; jobId: string; rows: RowData[]; page: number; detailCount?: number; detailFailed?: number; detailError?: string }
   | { type: "JOB_EVENT"; jobId: string; status: JobStatus; error?: string }
   | { type: "GET_JOB"; jobId?: string }
   | { type: "GET_ROWS"; jobId: string }

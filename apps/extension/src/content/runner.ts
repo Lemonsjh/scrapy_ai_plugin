@@ -37,27 +37,32 @@ function limitRows(rows: RowData[], job: JobRecord) {
 
 async function enrichDetails(rows: RowData[], job: JobRecord) {
   const detail = job.plan.detail;
-  if (!detail) return { rows, count: 0, failed: 0 };
+  if (!detail) return { rows, count: 0, failed: 0, error: undefined };
   const enriched: RowData[] = [];
   let failed = 0;
+  let lastError: string | undefined;
   for (const row of rows) {
     while (paused && !cancelled) await sleep(250);
     const empty = Object.fromEntries(detail.fields.map((field) => [field.id, null]));
     const href = row[detail.linkFieldId];
     try {
       const url = new URL(String(href ?? ""), location.href);
-      if (url.origin !== location.origin) throw new Error("详情链接不在当前站点");
+      if (!/^https?:$/.test(url.protocol) || url.hostname !== location.hostname) throw new Error("详情链接不在当前网站");
+      if (location.protocol === "https:" && url.protocol === "http:") url.protocol = "https:";
       const response = await fetch(url.href, { credentials: "include" });
       if (!response.ok) throw new Error(`详情页返回 ${response.status}`);
       const document = new DOMParser().parseFromString(await response.text(), "text/html");
-      enriched.push({ ...row, ...empty, ...extractDetailDocument(document, detail, url.href).data });
-    } catch {
+      const extracted = extractDetailDocument(document, detail, url.href).data;
+      if (Object.values(extracted).every((value) => value === null)) { failed += 1; lastError = "未匹配到正文选择器"; }
+      enriched.push({ ...row, ...empty, ...extracted });
+    } catch (error) {
       failed += 1;
+      lastError = error instanceof Error ? error.message : "详情页请求失败";
       enriched.push({ ...row, ...empty });
     }
     if (!cancelled) await sleep(detail.delayMs);
   }
-  return { rows: enriched, count: enriched.length, failed };
+  return { rows: enriched, count: enriched.length, failed, error: lastError };
 }
 
 export async function runJob(job: JobRecord) {
@@ -77,7 +82,7 @@ export async function runJob(job: JobRecord) {
       const batch = await enrichDetails(limitRows(extracted.rows, job), job);
       const rows = batch.rows;
       if (rows.length) {
-        const result = await send({ type: "JOB_BATCH", jobId: job.id, rows, page, detailCount: batch.count, detailFailed: batch.failed });
+        const result = await send({ type: "JOB_BATCH", jobId: job.id, rows, page, detailCount: batch.count, detailFailed: batch.failed, detailError: batch.error });
         job.rowCount = Number(result?.rowCount ?? job.rowCount + rows.length);
       }
       if (job.rowCount >= Math.min(job.plan.limits.maxRows, job.plan.detail?.maxItems ?? Number.POSITIVE_INFINITY)) break;
