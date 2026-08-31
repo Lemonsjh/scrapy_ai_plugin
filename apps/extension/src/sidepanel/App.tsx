@@ -22,6 +22,13 @@ function readableError(cause: unknown, fallback: string) {
   return message.length > 240 ? `${message.slice(0, 237)}…` : message;
 }
 
+function ruleError(issues: { path: PropertyKey[]; message: string }[]) {
+  const issue = issues[0];
+  if (!issue) return "规则无效";
+  const path = issue.path.length ? issue.path.join(" › ") : "根规则";
+  return `规则配置无效（${path}）：${issue.message}`;
+}
+
 function applyDetectedPagination(plan: ExtractionPlan, intent: string, snapshot: SnapshotResponse["snapshot"]) {
   const candidate = snapshot.paginationCandidates?.[0];
   const asksForMore = /翻页|多页|全部|所有|top\s*(?:[3-9]\d|[1-9]\d{2,})/i.test(intent);
@@ -186,7 +193,7 @@ export default function App() {
   const startJob = async () => {
     if (!plan) return;
     const parsed = ExtractionPlanSchema.safeParse(plan);
-    if (!parsed.success) return setError(parsed.error.issues[0]?.message ?? "规则无效");
+    if (!parsed.success) return setError(ruleError(parsed.error.issues));
     if (matches.some((match) => match.count === 0)) return setError("存在没有匹配结果的字段，请重新点选或删除");
     if ((plan.limits.maxPages > 10 || plan.limits.maxRows > 1000) && !confirm("当前范围超过默认安全限制，确认继续吗？")) return;
     setBusy("正在启动任务…"); setError(null);

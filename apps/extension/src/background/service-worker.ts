@@ -6,6 +6,12 @@ import { isSameSite } from "../detail-site";
 
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => undefined);
 
+function planError(issues: { path: PropertyKey[]; message: string }[]) {
+  const issue = issues[0];
+  const path = issue?.path.length ? issue.path.join(" › ") : "根规则";
+  return `规则配置无效（${path}）：${issue?.message ?? "未知原因"}`;
+}
+
 async function injectCollector(tabId: number) {
   try {
     await chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] });
@@ -33,7 +39,9 @@ chrome.runtime.onMessage.addListener((raw: ExtensionMessage, sender, respond) =>
   void (async () => {
     switch (raw.type) {
       case "START_JOB": {
-        const parsed = ExtractionPlanSchema.parse(raw.plan);
+        const checked = ExtractionPlanSchema.safeParse(raw.plan);
+        if (!checked.success) throw new Error(planError(checked.error.issues));
+        const parsed = checked.data;
         const tabId = sender.tab?.id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
         if (tabId === undefined) throw new Error("找不到活动页面");
         const now = Date.now();
