@@ -2,6 +2,7 @@ import type { ExtensionMessage, JobRecord, JobStatus } from "@atlas/shared";
 import { ExtractionPlanSchema } from "@atlas/shared";
 import { addRows, getJob, getLatestJob, getRows, getTabJob, listJobs, putJob } from "./database";
 import { createExport } from "./exporter";
+import { isSameSite } from "../detail-site";
 
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => undefined);
 
@@ -43,6 +44,13 @@ chrome.runtime.onMessage.addListener((raw: ExtensionMessage, sender, respond) =>
         await putJob(job);
         await sendToTab(tabId, { type: "RUN_JOB", job });
         return job;
+      }
+      case "FETCH_DETAIL": {
+        const job = await getJob(raw.jobId);
+        if (!job || !isSameSite(job.url, raw.url)) throw new Error("详情链接不在当前网站");
+        const response = await fetch(raw.url, { credentials: "include" });
+        if (!response.ok) throw new Error(`详情页返回 ${response.status}`);
+        return { html: await response.text() };
       }
       case "JOB_BATCH": {
         const job = await getJob(raw.jobId);

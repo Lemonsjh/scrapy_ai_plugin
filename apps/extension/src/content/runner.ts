@@ -1,6 +1,7 @@
 import type { ExtensionMessage, JobRecord, RowData } from "@atlas/shared";
 import { extractDetailDocument, extractRows, fingerprint } from "./extractor";
 import { queryFirst } from "./selectors";
+import { isSameSite, preferredDetailUrl } from "../detail-site";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -46,12 +47,12 @@ async function enrichDetails(rows: RowData[], job: JobRecord) {
     const empty = Object.fromEntries(detail.fields.map((field) => [field.id, null]));
     const href = row[detail.linkFieldId];
     try {
-      const url = new URL(String(href ?? ""), location.href);
-      if (!/^https?:$/.test(url.protocol) || url.hostname !== location.hostname) throw new Error("详情链接不在当前网站");
-      if (location.protocol === "https:" && url.protocol === "http:") url.protocol = "https:";
-      const response = await fetch(url.href, { credentials: "include" });
-      if (!response.ok) throw new Error(`详情页返回 ${response.status}`);
-      const document = new DOMParser().parseFromString(await response.text(), "text/html");
+      const rawUrl = new URL(String(href ?? ""), location.href);
+      if (!/^https?:$/.test(rawUrl.protocol) || !isSameSite(location.href, rawUrl.href)) throw new Error("详情链接不在当前网站");
+      const url = preferredDetailUrl(location.href, rawUrl.href);
+      const response = await send({ type: "FETCH_DETAIL", jobId: job.id, url: url.href });
+      if (!response?.html) throw new Error(response?.error ?? "详情页请求失败");
+      const document = new DOMParser().parseFromString(response.html, "text/html");
       const extracted = extractDetailDocument(document, detail, url.href).data;
       if (Object.values(extracted).every((value) => value === null)) { failed += 1; lastError = "未匹配到正文选择器"; }
       enriched.push({ ...row, ...empty, ...extracted });

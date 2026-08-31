@@ -41,6 +41,7 @@ export type ExtensionMessage =
   | { type: "START_SCOPE_PICKER" }
   | { type: "SCOPE_RESULT"; candidates: ScopeCandidate[] }
   | { type: "START_JOB"; plan: ExtractionPlan; url: string }
+  | { type: "FETCH_DETAIL"; jobId: string; url: string }
   | { type: "RUN_JOB"; job: JobRecord }
   | { type: "JOB_BATCH"; jobId: string; rows: RowData[]; page: number; detailCount?: number; detailFailed?: number; detailError?: string }
   | { type: "JOB_EVENT"; jobId: string; status: JobStatus; error?: string }

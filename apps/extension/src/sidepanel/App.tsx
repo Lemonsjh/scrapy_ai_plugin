@@ -6,7 +6,7 @@ import { PlanEditor } from "./PlanEditor";
 import { ResultsView } from "./ResultsView";
 import { SettingsDrawer } from "./SettingsDrawer";
 import { AiDialogue, type DialogueEntry } from "./AiDialogue";
-import { activeTab, analyzePage, defaultSettings, getLatestJob, getRows, inspectPage, loadSettings, previewPlan, runtimeMessage, saveSettings, tabMessage, type Settings } from "./extension-api";
+import { activeTab, analyzePage, defaultSettings, ensureDetailPermission, getLatestJob, getRows, inspectPage, loadSettings, previewPlan, runtimeMessage, saveSettings, tabMessage, type Settings } from "./extension-api";
 
 type Step = "intent" | "plan" | "results";
 
@@ -178,7 +178,7 @@ export default function App() {
     const next: ExtractionPlan = {
       mode: "list", rowSelectors: [candidate.rowSelector], fields, pagination: { type: "none" }, filters: [],
       limits: { maxPages: 1, maxRows: candidate.count, maxDurationMs: 600000, delayMs: 1000 }, deduplicateBy: ["title"],
-      ...(candidate.hasLink ? { detail: { linkFieldId: "link", maxItems: candidate.count, delayMs: 400, fields: [{ id: "detail_content", name: "正文", selectors: ["article", "main", "[role='main']", ".article-content", ".content"], source: "text", required: false, confidence: 0.5, transforms: [{ type: "trim" }] }] } } : {}),
+      ...(candidate.hasLink ? { detail: { linkFieldId: "link", maxItems: candidate.count, delayMs: 400, fields: [{ id: "detail_content", name: "正文", selectors: ["article", ".article", "main", "[role='main']", ".article-content", ".content"], source: "text", required: false, confidence: 0.5, transforms: [{ type: "trim" }] }] } } : {}),
     };
     setPlan(next); setWarnings([`快速选区：已锁定 ${candidate.count} 条内容；未调用 AI。${candidate.hasLink ? "已同时启用同域正文采集。" : "未找到稳定文章链接，仅采集容器内文本。"}`]); setScopeCandidates([]); setStep("plan"); await updatePreview(next);
   };
@@ -192,6 +192,7 @@ export default function App() {
     setBusy("正在启动任务…"); setError(null);
     try {
       const tab = await activeTab();
+      if (parsed.data.detail) await ensureDetailPermission(tab.url);
       const created = await runtimeMessage<JobRecord>({ type: "START_JOB", plan: parsed.data, url: tab.url });
       setJob(created); setRows([]); setStep("results");
     } catch (cause) { setError(readableError(cause, "任务启动失败")); }
