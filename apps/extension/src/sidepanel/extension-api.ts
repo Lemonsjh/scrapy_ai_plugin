@@ -1,6 +1,5 @@
 import type { AiPlanRequest, AiPlanResponse, ExtensionMessage, ExtractionPlan, JobRecord, PreviewResponse, RowData, SnapshotResponse } from "@atlas/shared";
 import { AiPlanOutputJsonSchema, AiPlanOutputSchema, AiPlanResponseSchema, AI_SYSTEM_INSTRUCTIONS, aiPlanInput, ExtractionPlanSchema } from "@atlas/shared";
-import { detailPermissionPattern } from "../detail-site";
 
 export type ConnectionMode = "proxy" | "direct";
 export type ProviderKind = "atlas" | "openai" | "compatible";
@@ -126,13 +125,6 @@ function outputText(body: Record<string, unknown>) {
     if (text?.text) return text.text;
   }
   throw new Error("模型没有返回结构化文本");
-}
-
-export async function ensureDetailPermission(pageUrl: string) {
-  const origin = detailPermissionPattern(pageUrl);
-  if (await chrome.permissions.contains({ origins: [origin] })) return;
-  const granted = await chrome.permissions.request({ origins: [origin] });
-  if (!granted) throw new Error(`需要访问 ${new URL(pageUrl).hostname} 的子站详情页，才能采集正文。`);
 }
 
 const safeTransforms = new Set(["trim", "parse_number", "parse_date", "absolute_url"]);

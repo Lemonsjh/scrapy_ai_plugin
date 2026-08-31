@@ -27,8 +27,3 @@ export function preferredDetailUrl(pageUrl: string, detailUrl: string) {
   if (page.protocol === "https:" && detail.protocol === "http:") detail.protocol = "https:";
   return detail;
 }
-
-export function detailPermissionPattern(pageUrl: string) {
-  const domain = siteDomain(pageUrl);
-  return `*://${domain === "localhost" || /^\d/.test(domain) ? domain : `*.${domain}`}/*`;
-}

@@ -6,7 +6,7 @@ import { PlanEditor } from "./PlanEditor";
 import { ResultsView } from "./ResultsView";
 import { SettingsDrawer } from "./SettingsDrawer";
 import { AiDialogue, type DialogueEntry } from "./AiDialogue";
-import { activeTab, analyzePage, defaultSettings, ensureDetailPermission, getLatestJob, getRows, inspectPage, loadSettings, previewPlan, runtimeMessage, saveSettings, tabMessage, type Settings } from "./extension-api";
+import { activeTab, analyzePage, defaultSettings, getLatestJob, getRows, inspectPage, loadSettings, previewPlan, runtimeMessage, saveSettings, tabMessage, type Settings } from "./extension-api";
 
 type Step = "intent" | "plan" | "results";
 
@@ -192,7 +192,6 @@ export default function App() {
     setBusy("正在启动任务…"); setError(null);
     try {
       const tab = await activeTab();
-      if (parsed.data.detail) await ensureDetailPermission(tab.url);
       const created = await runtimeMessage<JobRecord>({ type: "START_JOB", plan: parsed.data, url: tab.url });
       setJob(created); setRows([]); setStep("results");
     } catch (cause) { setError(readableError(cause, "任务启动失败")); }
