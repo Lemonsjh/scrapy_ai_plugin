@@ -89,6 +89,20 @@ function candidateContainers() {
     .slice(0, 3);
 }
 
+export function isNextPageLabel(label: string) {
+  return /^(?:(?:下一页|下页|后页|next|更多)\s*[›»>]?|[›»>])\s*$/i.test(label);
+}
+
+function paginationCandidates() {
+  return [...document.querySelectorAll("a,button,[role='button']")]
+    .filter((element) => visible(element))
+    .map((element) => ({ element, label: (element.textContent ?? element.getAttribute("aria-label") ?? "").replace(/\s+/g, " ").trim() }))
+    .filter(({ element, label }) => isNextPageLabel(label) && !element.matches(":disabled,[aria-disabled='true']"))
+    .map(({ element, label }) => ({ selector: selectorCandidates(element)[0], label }))
+    .filter((item): item is { selector: string; label: string } => !!item.selector)
+    .slice(0, 5);
+}
+
 export function buildSnapshot(): SemanticPageSnapshot {
   redactionCount = 0;
   nodeCounter = 0;
@@ -98,23 +112,24 @@ export function buildSnapshot(): SemanticPageSnapshot {
     sampleCount: element.children.length,
     rows: [...element.children].slice(0, 5).map((child) => semanticNode(child)).filter(Boolean) as SemanticNode[],
   }));
+  const pages = paginationCandidates();
 
   if (!candidates.length) {
     const body = semanticNode(document.body);
     if (body) candidates.push({ selector: "body", score: 1, sampleCount: 1, rows: [body] });
   }
 
-  let serialized = JSON.stringify(candidates);
+  let serialized = JSON.stringify({ candidates, paginationCandidates: pages });
   let truncated = false;
   if (serialized.length > MAX_CHARS) {
     truncated = true;
     while (serialized.length > MAX_CHARS && candidates.some((item) => item.rows.length > 1)) {
       candidates.sort((a, b) => b.rows.length - a.rows.length)[0]?.rows.pop();
-      serialized = JSON.stringify(candidates);
+      serialized = JSON.stringify({ candidates, paginationCandidates: pages });
     }
     if (serialized.length > MAX_CHARS) {
       candidates.splice(1);
-      serialized = JSON.stringify(candidates).slice(0, MAX_CHARS);
+      serialized = JSON.stringify({ candidates, paginationCandidates: pages }).slice(0, MAX_CHARS);
     }
   }
   return {
@@ -124,5 +139,6 @@ export function buildSnapshot(): SemanticPageSnapshot {
     redactionCount,
     truncated,
     candidates,
+    paginationCandidates: pages,
   };
 }

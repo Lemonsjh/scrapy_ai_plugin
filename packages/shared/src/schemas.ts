@@ -96,6 +96,10 @@ export const SemanticPageSnapshotSchema = z.object({
     sampleCount: z.number().int(),
     rows: z.array(SemanticNodeSchema).max(5),
   })).max(3),
+  paginationCandidates: z.array(z.object({
+    selector: z.string().min(1).max(500),
+    label: z.string().min(1).max(100),
+  })).max(5).optional(),
 });
 
 export const AiPlanRequestSchema = z.object({

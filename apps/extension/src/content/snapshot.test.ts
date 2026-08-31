@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { redact } from "./snapshot";
+import { isNextPageLabel, redact } from "./snapshot";
 
 describe("snapshot privacy", () => {
   it("redacts email, phone and bearer tokens", () => {
@@ -9,5 +9,9 @@ describe("snapshot privacy", () => {
     expect(output).toContain("[PHONE]");
     expect(output).toContain("[TOKEN]");
     expect(output).not.toContain("a@example.com");
+  });
+  it("recognizes common next-page labels", () => {
+    expect(["后页>", "下一页", "Next ›", ">"].every(isNextPageLabel)).toBe(true);
+    expect(isNextPageLabel("前页")).toBe(false);
   });
 });

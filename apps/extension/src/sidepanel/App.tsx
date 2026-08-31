@@ -22,6 +22,16 @@ function readableError(cause: unknown, fallback: string) {
   return message.length > 240 ? `${message.slice(0, 237)}…` : message;
 }
 
+function applyDetectedPagination(plan: ExtractionPlan, intent: string, snapshot: SnapshotResponse["snapshot"]) {
+  const candidate = snapshot.paginationCandidates?.[0];
+  const asksForMore = /翻页|多页|全部|所有|top\s*(?:[3-9]\d|[1-9]\d{2,})/i.test(intent);
+  if (!candidate || plan.pagination.type !== "none" || !asksForMore) return { plan, warning: undefined };
+  return {
+    plan: { ...plan, pagination: { type: "next_button" as const, selectors: [candidate.selector] } },
+    warning: `本地检测到“${candidate.label}”下一页按钮，已按你的多页需求启用翻页。`,
+  };
+}
+
 export default function App() {
   const [step, setStep] = useState<Step>("intent");
   const [intent, setIntent] = useState("");
@@ -120,8 +130,9 @@ export default function App() {
       const result = await analyzePage({
         intent, page: { url: tab.url, title: tab.title ?? "", language: navigator.language }, snapshot: inspection.snapshot,
       }, settings);
-      setPlan(result.plan); setWarnings(result.warnings); await updatePreview(result.plan); setStep("plan");
-      updateDialogue(traceId, { state: "success", text: "规则已生成，并已在当前页面做了字段匹配预览。", meta: `${result.plan.fields.length} 个字段 · ${result.plan.rowSelectors.length} 个列表候选` });
+      const detected = applyDetectedPagination(result.plan, intent, inspection.snapshot);
+      setPlan(detected.plan); setWarnings(detected.warning ? [...result.warnings, detected.warning] : result.warnings); await updatePreview(detected.plan); setStep("plan");
+      updateDialogue(traceId, { state: "success", text: "规则已生成，并已在当前页面做了字段匹配预览。", meta: `${detected.plan.fields.length} 个字段 · ${detected.plan.rowSelectors.length} 个列表候选${detected.warning ? " · 已启用本地翻页" : ""}` });
     } catch (cause) {
       const message = readableError(cause, "AI 解析失败");
       setError(message); updateDialogue(traceId, { state: "error", text: "AI 未能生成可用规则。", meta: message });
@@ -141,8 +152,9 @@ export default function App() {
         intent, page: { url: tab.url, title: tab.title ?? "", language: navigator.language }, snapshot: inspection.snapshot,
         previousPlan: plan, correction: request,
       }, settings);
-      setPlan(result.plan); setWarnings(result.warnings); await updatePreview(result.plan);
-      updateDialogue(traceId, { state: "success", text: "规则已根据你的要求更新，并重新完成字段预览。", meta: `${result.plan.fields.length} 个字段等待你确认` });
+      const detected = applyDetectedPagination(result.plan, intent, inspection.snapshot);
+      setPlan(detected.plan); setWarnings(detected.warning ? [...result.warnings, detected.warning] : result.warnings); await updatePreview(detected.plan);
+      updateDialogue(traceId, { state: "success", text: "规则已根据你的要求更新，并重新完成字段预览。", meta: `${detected.plan.fields.length} 个字段等待你确认` });
     } catch (cause) {
       const message = readableError(cause, "AI 修改失败");
       setError(message); setCorrection(request); updateDialogue(traceId, { state: "error", text: "这次修改没有完成，原规则保持不变。", meta: message });
