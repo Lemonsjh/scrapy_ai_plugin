@@ -18,4 +18,8 @@ describe("ExtractionPlanSchema", () => {
     plan.rowSelectors = ["javascript:alert(1)"];
     expect(ExtractionPlanSchema.safeParse(plan).success).toBe(false);
   });
+  it("rejects more than five selector fallbacks", () => {
+    const plan = { ...structuredClone(validPlan), detail: { linkFieldId: "title", maxItems: 1, delayMs: 0, fields: [{ ...validPlan.fields[0], id: "body", selectors: ["article", ".article", "main", ".content", "#content", ".post"] }] } };
+    expect(ExtractionPlanSchema.safeParse(plan).success).toBe(false);
+  });
 });

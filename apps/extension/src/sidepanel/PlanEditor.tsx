@@ -31,7 +31,7 @@ export function PlanEditor({ plan, matches, onChange, onPick, onHighlight }: Pro
     if (!link) return;
     onChange({ ...plan, detail: {
       linkFieldId: link.id, maxItems: Math.min(plan.limits.maxRows, 100), delayMs: 400,
-      fields: [{ id: "detail_content", name: "正文", selectors: ["article", ".article", "main", "[role='main']", ".article-content", ".content"], source: "text", required: false, confidence: 0.5, transforms: [{ type: "trim" }] }],
+      fields: [{ id: "detail_content", name: "正文", selectors: ["article", ".article", "main", "[role='main']", ".article-content"], source: "text", required: false, confidence: 0.5, transforms: [{ type: "trim" }] }],
     } });
   };
   const updateDetail = (patch: Partial<NonNullable<ExtractionPlan["detail"]>>) => plan.detail && onChange({ ...plan, detail: { ...plan.detail, ...patch } });
