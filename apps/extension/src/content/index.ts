@@ -97,7 +97,7 @@ function startScopePicker() {
   pickerCleanup?.();
   const badge = document.createElement("div");
   badge.dataset.atlasUi = "true";
-  badge.textContent = "点击包含新闻的外层容器 · Esc 取消";
+  badge.textContent = "点击包含目标内容的外层容器 · Esc 取消";
   Object.assign(badge.style, { position: "fixed", zIndex: "2147483647", top: "16px", left: "50%", transform: "translateX(-50%)", padding: "10px 14px", borderRadius: "8px", background: "#151814", color: "#f4f1e8", font: "600 13px sans-serif", boxShadow: "0 8px 30px #0005" });
   document.documentElement.append(badge);
   let hovered: HTMLElement | null = null;

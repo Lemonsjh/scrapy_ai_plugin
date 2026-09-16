@@ -31,7 +31,7 @@ export function PlanEditor({ plan, matches, onChange, onPick, onHighlight }: Pro
     if (!link) return;
     onChange({ ...plan, detail: {
       linkFieldId: link.id, maxItems: Math.min(plan.limits.maxRows, 100), delayMs: 400,
-      fields: [{ id: "detail_content", name: "正文", selectors: ["article", ".article", "main", "[role='main']", ".article-content"], source: "text", required: false, confidence: 0.5, transforms: [{ type: "trim" }] }],
+      fields: [{ id: "detail_content", name: "详情内容", selectors: ["article", ".article", "main", "[role='main']", ".article-content"], source: "text", required: false, confidence: 0.5, transforms: [{ type: "trim" }] }],
     } });
   };
   const updateDetail = (patch: Partial<NonNullable<ExtractionPlan["detail"]>>) => plan.detail && onChange({ ...plan, detail: { ...plan.detail, ...patch } });
@@ -73,10 +73,10 @@ export function PlanEditor({ plan, matches, onChange, onPick, onHighlight }: Pro
       })}
     </div>
     <section className="detail-card">
-      <div className="section-heading compact"><div><span className="eyebrow">DETAIL FOLLOW-UP</span><h2><FileText size={16} />文章详情页</h2></div>
+      <div className="section-heading compact"><div><span className="eyebrow">DETAIL FOLLOW-UP</span><h2><FileText size={16} />详情页采集</h2></div>
         {plan.detail ? <button className="outline small" onClick={() => onChange({ ...plan, detail: undefined })}>关闭</button>
-          : <button className="outline small" disabled={!linkFields.length} onClick={enableDetails}><Link2 size={14} />采集正文</button>}</div>
-      {!plan.detail && <p>{linkFields.length ? "启用后，Atlas 会在同一站点逐篇读取文章详情并合并正文。默认最多 100 篇。" : "先将一个列表字段的来源改为“链接”，才能定位文章详情页。"}</p>}
+          : <button className="outline small" disabled={!linkFields.length} onClick={enableDetails}><Link2 size={14} />采集详情</button>}</div>
+      {!plan.detail && <p>{linkFields.length ? "启用后，Atlas 会在同一站点逐项读取详情并合并内容。默认最多 100 条。" : "先将一个列表字段的来源改为“链接”，才能定位详情页。"}</p>}
       {plan.detail && <>
         <div className="detail-controls"><label>详情链接<select value={plan.detail.linkFieldId} onChange={(event) => updateDetail({ linkFieldId: event.target.value })}>
           {linkFields.map((field) => <option key={field.id} value={field.id}>{field.name}</option>)}</select></label>
@@ -89,7 +89,7 @@ export function PlanEditor({ plan, matches, onChange, onPick, onHighlight }: Pro
           <button title="删除详情字段" onClick={() => updateDetail({ fields: plan.detail!.fields.filter((item) => item.id !== field.id) })}><Trash2 size={14} /></button>
         </div>)}</div>
         <button className="text-button detail-add" onClick={addDetailField}><Plus size={14} />添加详情字段</button>
-        <small>仅请求同域文章链接；详情页脚本渲染或字段缺失时，该字段会保留为空。</small>
+        <small>仅请求同域详情链接；详情页脚本渲染或字段缺失时，该字段会保留为空。</small>
       </>}
     </section>
     <section className="execution-card">

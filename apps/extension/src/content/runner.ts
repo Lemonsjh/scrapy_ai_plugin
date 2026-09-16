@@ -54,7 +54,7 @@ async function enrichDetails(rows: RowData[], job: JobRecord) {
       if (!response?.html) throw new Error(response?.error ?? "详情页请求失败");
       const document = new DOMParser().parseFromString(response.html, "text/html");
       const extracted = extractDetailDocument(document, detail, url.href).data;
-      if (Object.values(extracted).every((value) => value === null)) { failed += 1; lastError = "未匹配到正文选择器"; }
+      if (Object.values(extracted).every((value) => value === null)) { failed += 1; lastError = "未匹配到详情内容选择器"; }
       enriched.push({ ...row, ...empty, ...extracted });
     } catch (error) {
       failed += 1;

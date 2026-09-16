@@ -105,7 +105,7 @@ export default function App() {
       if (message.type === "SCOPE_RESULT") {
         const candidates = message.candidates ?? [];
         setScopeCandidates(candidates);
-        addDialogue({ role: "atlas", state: candidates.length ? "success" : "error", text: candidates.length ? `已在选区内找到 ${candidates.length} 组重复内容，可直接创建采集规则。` : "选区内没有找到重复新闻项，请点选更靠近新闻列表的容器。" });
+        addDialogue({ role: "atlas", state: candidates.length ? "success" : "error", text: candidates.length ? `已在选区内找到 ${candidates.length} 组重复内容，可直接创建采集规则。` : "选区内没有找到重复内容项，请点选更靠近目标列表的容器。" });
         return;
       }
       if (message.type !== "PICKER_RESULT" || !plan || !message.fieldId || !message.selectors) return;
@@ -185,14 +185,14 @@ export default function App() {
   };
 
   const createFromScope = async (candidate: ScopeCandidate) => {
-    const fields: ExtractionPlan["fields"] = [{ id: "title", name: "新闻标题", selectors: candidate.hasLink ? ["a"] : ["a", "h3", "h2", "p"], source: "text", required: true, confidence: 1, transforms: [{ type: "trim" }] }];
-    if (candidate.hasLink) fields.push({ id: "link", name: "文章链接", selectors: ["a[href]"], source: "href", required: true, confidence: 1, transforms: [{ type: "absolute_url" }] });
+    const fields: ExtractionPlan["fields"] = [{ id: "title", name: "内容标题", selectors: candidate.hasLink ? ["a"] : ["a", "h3", "h2", "p"], source: "text", required: true, confidence: 1, transforms: [{ type: "trim" }] }];
+    if (candidate.hasLink) fields.push({ id: "link", name: "详情链接", selectors: ["a[href]"], source: "href", required: true, confidence: 1, transforms: [{ type: "absolute_url" }] });
     const next: ExtractionPlan = {
       mode: "list", rowSelectors: [candidate.rowSelector], fields, pagination: { type: "none" }, filters: [],
       limits: { maxPages: 1, maxRows: candidate.count, maxDurationMs: 600000, delayMs: 1000 }, deduplicateBy: ["title"],
-      ...(candidate.hasLink ? { detail: { linkFieldId: "link", maxItems: candidate.count, delayMs: 400, fields: [{ id: "detail_content", name: "正文", selectors: ["article", ".article", "main", "[role='main']", ".article-content"], source: "text", required: false, confidence: 0.5, transforms: [{ type: "trim" }] }] } } : {}),
+      ...(candidate.hasLink ? { detail: { linkFieldId: "link", maxItems: candidate.count, delayMs: 400, fields: [{ id: "detail_content", name: "详情内容", selectors: ["article", ".article", "main", "[role='main']", ".article-content"], source: "text", required: false, confidence: 0.5, transforms: [{ type: "trim" }] }] } } : {}),
     };
-    setPlan(next); setWarnings([`快速选区：已锁定 ${candidate.count} 条内容；未调用 AI。${candidate.hasLink ? "已同时启用同域正文采集。" : "未找到稳定文章链接，仅采集容器内文本。"}`]); setScopeCandidates([]); setStep("plan"); await updatePreview(next);
+    setPlan(next); setWarnings([`快速选区：已锁定 ${candidate.count} 条内容；未调用 AI。${candidate.hasLink ? "已同时启用同域详情采集。" : "未找到稳定详情链接，仅采集容器内文本。"}`]); setScopeCandidates([]); setStep("plan"); await updatePreview(next);
   };
 
   const startJob = async () => {
@@ -242,8 +242,8 @@ export default function App() {
               {busy ?? (inspection ? "AI 解析" : "检查页面")}<ArrowRight size={16} />
             </button></div>
         </section>
-        {scopeCandidates.length > 0 && <section className="scope-card"><div><span className="eyebrow">LOCAL SCOPE MATCH</span><h2>选择新闻列表</h2><p>以下候选仅来自你刚才点击的容器，不会调用 AI。</p></div>
-          {scopeCandidates.map((candidate) => <button key={candidate.rowSelector} onClick={() => void createFromScope(candidate)}><span><b>{candidate.count} 条{candidate.hasLink ? "新闻链接" : "文本项"}</b><small>{candidate.sample}</small></span><ChevronRight size={16} /></button>)}</section>}
+        {scopeCandidates.length > 0 && <section className="scope-card"><div><span className="eyebrow">LOCAL SCOPE MATCH</span><h2>选择内容列表</h2><p>以下候选仅来自你刚才点击的容器，不会调用 AI。</p></div>
+          {scopeCandidates.map((candidate) => <button key={candidate.rowSelector} onClick={() => void createFromScope(candidate)}><span><b>{candidate.count} 条{candidate.hasLink ? "内容链接" : "文本项"}</b><small>{candidate.sample}</small></span><ChevronRight size={16} /></button>)}</section>}
         {inspection && <section className="snapshot-card">
           <div className="snapshot-icon"><ShieldCheck size={20} /></div><div><b>发送前摘要</b><p>{inspection.summary.candidates} 个候选列表 · {inspection.summary.characters.toLocaleString()} 字符 · {inspection.summary.redactions} 处脱敏</p></div>
           <span className="safe-tag">LOCAL CLEAN</span>
