@@ -36,6 +36,17 @@ function limitRows(rows: RowData[], job: JobRecord) {
   return rows.slice(0, Math.max(0, maxRows - job.rowCount));
 }
 
+async function readDetailHtml(url: URL, job: JobRecord) {
+  if (url.origin === location.origin) {
+    const response = await fetch(url.href, { credentials: "include" });
+    if (!response.ok) throw new Error(`详情页返回 ${response.status}`);
+    return response.text();
+  }
+  const response = await send({ type: "FETCH_DETAIL", jobId: job.id, url: url.href });
+  if (!response?.html) throw new Error(response?.error ?? "详情页请求失败");
+  return response.html as string;
+}
+
 async function enrichDetails(rows: RowData[], job: JobRecord) {
   const detail = job.plan.detail;
   if (!detail) return { rows, count: 0, failed: 0, error: undefined };
@@ -50,9 +61,7 @@ async function enrichDetails(rows: RowData[], job: JobRecord) {
       const rawUrl = new URL(String(href ?? ""), location.href);
       if (!/^https?:$/.test(rawUrl.protocol) || !isSameSite(location.href, rawUrl.href)) throw new Error("详情链接不在当前网站");
       const url = preferredDetailUrl(location.href, rawUrl.href);
-      const response = await send({ type: "FETCH_DETAIL", jobId: job.id, url: url.href });
-      if (!response?.html) throw new Error(response?.error ?? "详情页请求失败");
-      const document = new DOMParser().parseFromString(response.html, "text/html");
+      const document = new DOMParser().parseFromString(await readDetailHtml(url, job), "text/html");
       const extracted = extractDetailDocument(document, detail, url.href).data;
       if (Object.values(extracted).every((value) => value === null)) { failed += 1; lastError = "未匹配到详情内容选择器"; }
       enriched.push({ ...row, ...empty, ...extracted });

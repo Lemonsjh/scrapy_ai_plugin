@@ -24,7 +24,9 @@ const database = openDB<AtlasDB>("atlas-collector", 1, {
 });
 
 function stableHash(row: RowData, keys: string[]) {
-  const selected = keys.length ? keys.map((key) => row[key]) : Object.entries(row).sort(([a], [b]) => a.localeCompare(b));
+  const requested = keys.map((key) => row[key]);
+  const empty = requested.every((value) => value === null || String(value).trim() === "");
+  const selected = keys.length && !empty ? requested : Object.entries(row).sort(([a], [b]) => a.localeCompare(b));
   const input = JSON.stringify(selected);
   let hash = 5381;
   for (let index = 0; index < input.length; index += 1) hash = (hash * 33) ^ input.charCodeAt(index);

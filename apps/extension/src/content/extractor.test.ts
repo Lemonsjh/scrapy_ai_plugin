@@ -31,4 +31,12 @@ describe("deterministic extractor", () => {
     }, "https://example.com/news/1");
     expect(result).toEqual({ data: { content: "正文内容" }, errors: [] });
   });
+  it("uses a text link instead of a poster link for list titles", () => {
+    document.body.innerHTML = `<ol><li class="movie"><a href="/subject/1"><img src="poster.jpg" /></a><div class="hd"><a href="/subject/1">电影 A</a></div></li></ol>`;
+    const moviePlan: ExtractionPlan = { ...plan, rowSelectors: [".movie"], filters: [], fields: [
+      { id: "title", name: "标题", selectors: [".hd a", "a:not(:has(img))", "a"], source: "text", required: true, confidence: 1, transforms: [{ type: "trim" }] },
+      { id: "link", name: "链接", selectors: [".hd a[href]", "a:not(:has(img))[href]", "a[href]"], source: "href", required: true, confidence: 1, transforms: [{ type: "absolute_url" }] },
+    ] };
+    expect(extractRows(moviePlan).rows).toEqual([{ title: "电影 A", link: "http://localhost:3000/subject/1" }]);
+  });
 });

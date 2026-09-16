@@ -185,8 +185,8 @@ export default function App() {
   };
 
   const createFromScope = async (candidate: ScopeCandidate) => {
-    const fields: ExtractionPlan["fields"] = [{ id: "title", name: "内容标题", selectors: candidate.hasLink ? ["a"] : ["a", "h3", "h2", "p"], source: "text", required: true, confidence: 1, transforms: [{ type: "trim" }] }];
-    if (candidate.hasLink) fields.push({ id: "link", name: "详情链接", selectors: ["a[href]"], source: "href", required: true, confidence: 1, transforms: [{ type: "absolute_url" }] });
+    const fields: ExtractionPlan["fields"] = [{ id: "title", name: "内容标题", selectors: candidate.hasLink ? [".hd a", "a:not(:has(img))", "a"] : ["a", "h3", "h2", "p"], source: "text", required: true, confidence: 1, transforms: [{ type: "trim" }] }];
+    if (candidate.hasLink) fields.push({ id: "link", name: "详情链接", selectors: [".hd a[href]", "a:not(:has(img))[href]", "a[href]"], source: "href", required: true, confidence: 1, transforms: [{ type: "absolute_url" }] });
     const next: ExtractionPlan = {
       mode: "list", rowSelectors: [candidate.rowSelector], fields, pagination: { type: "none" }, filters: [],
       limits: { maxPages: 1, maxRows: candidate.count, maxDurationMs: 600000, delayMs: 1000 }, deduplicateBy: ["title"],
