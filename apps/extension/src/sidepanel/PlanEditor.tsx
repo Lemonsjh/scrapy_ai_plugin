@@ -30,7 +30,7 @@ export function PlanEditor({ plan, matches, onChange, onPick, onHighlight }: Pro
     const link = linkFields[0];
     if (!link) return;
     onChange({ ...plan, detail: {
-      linkFieldId: link.id, maxItems: Math.min(plan.limits.maxRows, 100), delayMs: 400,
+      linkFieldId: link.id, maxItems: Math.min(plan.limits.maxRows, 100), delayMs: 2000,
       fields: [{ id: "detail_content", name: "详情内容", selectors: ["article", ".article", "main", "[role='main']", ".article-content"], source: "text", required: false, confidence: 0.5, transforms: [{ type: "trim" }] }],
     } });
   };
@@ -80,7 +80,8 @@ export function PlanEditor({ plan, matches, onChange, onPick, onHighlight }: Pro
       {plan.detail && <>
         <div className="detail-controls"><label>详情链接<select value={plan.detail.linkFieldId} onChange={(event) => updateDetail({ linkFieldId: event.target.value })}>
           {linkFields.map((field) => <option key={field.id} value={field.id}>{field.name}</option>)}</select></label>
-          <label>最多文章<input type="number" min="1" max="1000" value={plan.detail.maxItems} onChange={(event) => updateDetail({ maxItems: Number(event.target.value) })} /></label></div>
+          <label>最多条数<input type="number" min="1" max="1000" value={plan.detail.maxItems} onChange={(event) => updateDetail({ maxItems: Number(event.target.value) })} /></label>
+          <label>详情间隔(ms)<input type="number" min="1500" max="60000" step="100" value={plan.detail.delayMs} onChange={(event) => updateDetail({ delayMs: Number(event.target.value) })} /></label></div>
         <div className="detail-field-stack">{plan.detail.fields.map((field) => <div className="detail-field" key={field.id}>
           <input value={field.name} aria-label="详情字段名称" onChange={(event) => updateDetailField(field.id, { name: event.target.value })} />
           <select value={field.source} aria-label="详情字段来源" onChange={(event) => updateDetailField(field.id, { source: event.target.value as FieldRule["source"] })}>

@@ -29,9 +29,9 @@ function ruleError(issues: { path: PropertyKey[]; message: string }[]) {
   return `规则配置无效（${path}）：${issue.message}`;
 }
 
-function capFieldSelectors(plan: ExtractionPlan): ExtractionPlan {
+function normalizePlan(plan: ExtractionPlan): ExtractionPlan {
   const cap = (field: ExtractionPlan["fields"][number]) => ({ ...field, selectors: field.selectors.slice(0, 5) });
-  return { ...plan, fields: plan.fields.map(cap), detail: plan.detail && { ...plan.detail, fields: plan.detail.fields.map(cap) } };
+  return { ...plan, fields: plan.fields.map(cap), detail: plan.detail && { ...plan.detail, delayMs: Math.max(plan.detail.delayMs, 1500), fields: plan.detail.fields.map(cap) } };
 }
 
 function applyDetectedPagination(plan: ExtractionPlan, intent: string, snapshot: SnapshotResponse["snapshot"]) {
@@ -190,14 +190,14 @@ export default function App() {
     const next: ExtractionPlan = {
       mode: "list", rowSelectors: [candidate.rowSelector], fields, pagination: { type: "none" }, filters: [],
       limits: { maxPages: 1, maxRows: candidate.count, maxDurationMs: 600000, delayMs: 1000 }, deduplicateBy: ["title"],
-      ...(candidate.hasLink ? { detail: { linkFieldId: "link", maxItems: candidate.count, delayMs: 400, fields: [{ id: "detail_content", name: "详情内容", selectors: ["article", ".article", "main", "[role='main']", ".article-content"], source: "text", required: false, confidence: 0.5, transforms: [{ type: "trim" }] }] } } : {}),
+      ...(candidate.hasLink ? { detail: { linkFieldId: "link", maxItems: candidate.count, delayMs: 2000, fields: [{ id: "detail_content", name: "详情内容", selectors: ["article", ".article", "main", "[role='main']", ".article-content"], source: "text", required: false, confidence: 0.5, transforms: [{ type: "trim" }] }] } } : {}),
     };
     setPlan(next); setWarnings([`快速选区：已锁定 ${candidate.count} 条内容；未调用 AI。${candidate.hasLink ? "已同时启用同域详情采集。" : "未找到稳定详情链接，仅采集容器内文本。"}`]); setScopeCandidates([]); setStep("plan"); await updatePreview(next);
   };
 
   const startJob = async () => {
     if (!plan) return;
-    const parsed = ExtractionPlanSchema.safeParse(capFieldSelectors(plan));
+    const parsed = ExtractionPlanSchema.safeParse(normalizePlan(plan));
     if (!parsed.success) return setError(ruleError(parsed.error.issues));
     setPlan(parsed.data);
     if (matches.some((match) => match.count === 0)) return setError("存在没有匹配结果的字段，请重新点选或删除");

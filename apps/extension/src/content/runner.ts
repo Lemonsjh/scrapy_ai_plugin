@@ -4,6 +4,7 @@ import { queryFirst } from "./selectors";
 import { isSameSite, preferredDetailUrl } from "../detail-site";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const rateLimited = (message: string) => /429|too many requests/i.test(message);
 
 async function waitForChange(previous: string, timeoutMs: number) {
   return new Promise<boolean>((resolve) => {
@@ -53,6 +54,7 @@ function readFrameHtml(url: URL) {
       try {
         const html = frame.contentDocument?.documentElement.outerHTML;
         if (!html) throw new Error("详情页框架不可读取");
+        if (rateLimited(html)) return finish(new Error("网站触发 429 频率限制"));
         finish(undefined, html);
       } catch {
         finish(new Error("详情页框架不可读取"));
@@ -98,11 +100,19 @@ async function enrichDetails(rows: RowData[], job: JobRecord) {
       if (Object.values(extracted).every((value) => value === null)) { failed += 1; lastError = "未匹配到详情内容选择器"; }
       enriched.push({ ...row, ...empty, ...extracted });
     } catch (error) {
-      failed += 1;
-      lastError = error instanceof Error ? error.message : "详情页请求失败";
+      const message = error instanceof Error ? error.message : "详情页请求失败";
       enriched.push({ ...row, ...empty });
+      if (rateLimited(message)) {
+        const remaining = rows.slice(enriched.length);
+        enriched.push(...remaining.map((item) => ({ ...item, ...empty })));
+        failed += remaining.length + 1;
+        lastError = "网站触发 429 频率限制，已停止后续详情读取；请稍后再试";
+        break;
+      }
+      failed += 1;
+      lastError = message;
     }
-    if (!cancelled) await sleep(detail.delayMs);
+    if (!cancelled) await sleep(Math.max(detail.delayMs, 1500));
   }
   return { rows: enriched, count: enriched.length, failed, error: lastError };
 }
