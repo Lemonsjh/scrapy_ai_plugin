@@ -36,11 +36,43 @@ function limitRows(rows: RowData[], job: JobRecord) {
   return rows.slice(0, Math.max(0, maxRows - job.rowCount));
 }
 
+function readFrameHtml(url: URL) {
+  return new Promise<string>((resolve, reject) => {
+    const frame = document.createElement("iframe");
+    let timeout = 0;
+    const finish = (error?: Error, html?: string) => {
+      window.clearTimeout(timeout);
+      frame.remove();
+      if (error) reject(error); else resolve(html ?? "");
+    };
+    timeout = window.setTimeout(() => finish(new Error("详情页加载超时")), 15_000);
+    frame.hidden = true;
+    frame.dataset.atlasUi = "true";
+    frame.addEventListener("error", () => finish(new Error("详情页框架加载失败")), { once: true });
+    frame.addEventListener("load", () => {
+      try {
+        const html = frame.contentDocument?.documentElement.outerHTML;
+        if (!html) throw new Error("详情页框架不可读取");
+        finish(undefined, html);
+      } catch {
+        finish(new Error("详情页框架不可读取"));
+      }
+    }, { once: true });
+    frame.src = url.href;
+    document.documentElement.append(frame);
+  });
+}
+
 async function readDetailHtml(url: URL, job: JobRecord) {
   if (url.origin === location.origin) {
-    const response = await fetch(url.href, { credentials: "include" });
-    if (!response.ok) throw new Error(`详情页返回 ${response.status}`);
-    return response.text();
+    try {
+      const response = await fetch(url.href, { credentials: "include" });
+      if (!response.ok) throw new Error(`详情页返回 ${response.status}`);
+      return response.text();
+    } catch (error) {
+      if (error instanceof Error && /^详情页返回/.test(error.message)) throw error;
+      return readFrameHtml(url);
+    }
   }
   const response = await send({ type: "FETCH_DETAIL", jobId: job.id, url: url.href });
   if (!response?.html) throw new Error(response?.error ?? "详情页请求失败");
