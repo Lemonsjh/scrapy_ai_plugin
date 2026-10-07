@@ -24,6 +24,26 @@
 .cell-detail pre { font: inherit; font-size: 13px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; }
 .pulse.partial { background: #d49717; }
 .preview-panel .table-scroll td,.preview-panel .table-scroll th { font-size: 11px; }
+.history-panel { margin-top: 22px; }
+.history-panel h2 { display: flex; align-items: center; gap: 7px; }
+.history-panel .toolbar { margin-top: 0; }
+.history-list { display: grid; gap: 12px; margin-top: 16px; }
+.history-item { padding: 15px; border: 1px solid var(--line); border-left: 3px solid var(--ink); background: var(--paper); }
+.history-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.history-title b { overflow-wrap: anywhere; }
+.history-status { white-space: nowrap; padding: 3px 7px; font-size: 11px; background: #e0ded3; }
+.history-status.completed { background: #dfeaaf; }.history-status.partial,.history-status.paused { background: #ffe4a2; }.history-status.failed { background: #ffd0ca; }
+.history-url { display: block; margin: 7px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.history-item p { font-size: 12px; line-height: 1.5; margin: 8px 0; }.history-item > small { font-size: 11px; color: var(--muted); }
+.result-filters { display: flex; gap: 7px; margin: 12px 0; }
+.result-filters input,.result-filters select { min-width: 0; padding: 8px; border: 1px solid var(--line); background: #fff; font-size: 12px; }
+.result-filters input { flex: 1; width: 0; }.result-filters select { max-width: 120px; }
+.result-pagination { display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-top: 12px; font-size: 11px; color: var(--muted); }
+.row-status { padding: 4px 6px; border: 0; white-space: nowrap; font-size: 10px; background: #eeece4; }
+.row-status.success { background: #dfeaaf; }.row-status.failed { background: #ffd0ca; color: var(--danger); }.row-status.pending { background: #ffe4a2; }
+.topbar .step-track { margin-left: auto; }
+.toolbar { flex-wrap: wrap; }
+:is(button,input,textarea,select):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 330px; min-height: 100vh; background: radial-gradient(circle at 88% 4%, #fff 0, transparent 25%), #e9e7de; }

@@ -84,7 +84,7 @@ export async function tabMessage<T>(message: ExtensionMessage): Promise<T> {
 
 export async function runtimeMessage<T>(message: ExtensionMessage): Promise<T> {
   const response = await chrome.runtime.sendMessage(message);
-  if (response?.error) throw new Error(response.error);
+  if (response?.error && !response?.id) throw new Error(response.error);
   return response as T;
 }
 

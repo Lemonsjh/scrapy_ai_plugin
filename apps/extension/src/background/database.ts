@@ -1,14 +1,8 @@
-import type { DetailItem, JobRecord, RowData } from "@atlas/shared";
+import type { CollectedRow, DetailItem, JobRecord, RowData } from "@atlas/shared";
 import { openDB, type DBSchema } from "idb";
 
-interface StoredRow {
-  key: string;
+interface StoredRow extends CollectedRow {
   jobId: string;
-  index: number;
-  data: RowData;
-  detailStatus?: "pending" | "success" | "failed";
-  detailError?: string;
-  pageUrl?: string;
 }
 
 interface AtlasDB extends DBSchema {
@@ -41,6 +35,15 @@ export async function putJob(job: JobRecord) {
   return job;
 }
 
+export async function activateJob(job: JobRecord, expectedStatus?: JobRecord["status"]) {
+  const tx = (await database).transaction("jobs", "readwrite");
+  const existing = await tx.store.get(job.id);
+  if (expectedStatus && existing?.status !== expectedStatus) throw new Error("任务状态已变化，请刷新任务后重试");
+  const jobs = await tx.store.index("by-tab").getAll(job.tabId);
+  if (jobs.some((item) => item.id !== job.id && ["running", "paused"].includes(item.status))) throw new Error("该标签页已有未结束任务，请先停止或继续原任务");
+  await tx.store.put(job); await tx.done; return job;
+}
+
 export async function getJob(id: string) {
   return (await database).get("jobs", id);
 }
@@ -54,6 +57,11 @@ export async function getLatestJob() {
 export async function getTabJob(tabId: number) {
   const jobs = await (await database).getAllFromIndex("jobs", "by-tab", tabId);
   return jobs.sort((a, b) => b.updatedAt - a.updatedAt)[0];
+}
+
+export async function getActiveTabJob(tabId: number, excluding?: string) {
+  const jobs = await (await database).getAllFromIndex("jobs", "by-tab", tabId);
+  return jobs.filter((job) => job.id !== excluding && ["running", "paused"].includes(job.status)).sort((a, b) => b.updatedAt - a.updatedAt)[0];
 }
 
 export async function addRows(job: JobRecord, rows: RowData[], pageUrl = job.url) {
@@ -118,6 +126,8 @@ export async function retryDetails(jobId: string) {
   const tx = (await database).transaction(["jobs", "rows"], "readwrite");
   const job = await tx.objectStore("jobs").get(jobId);
   if (!job || !["partial", "completed", "failed"].includes(job.status)) throw new Error("请在任务结束后补采失败详情");
+  const siblings = await tx.objectStore("jobs").index("by-tab").getAll(job.tabId);
+  if (siblings.some((item) => item.id !== job.id && ["running", "paused"].includes(item.status))) throw new Error("该标签页已有未结束任务，请先停止或完成该任务");
   const rows = await tx.objectStore("rows").index("by-job").getAll(jobId);
   let reset = 0;
   for (const row of rows) if (row.detailStatus === "failed") {
@@ -135,6 +145,19 @@ export async function retryDetails(jobId: string) {
 export async function getRows(jobId: string) {
   const rows = await (await database).getAllFromIndex("rows", "by-job", jobId);
   return rows.sort((a, b) => a.index - b.index).map((row) => row.data);
+}
+
+export async function getRowRecords(jobId: string): Promise<CollectedRow[]> {
+  const rows = await (await database).getAllFromIndex("rows", "by-job", jobId);
+  return rows.sort((a, b) => a.index - b.index).map(({ jobId: _jobId, ...row }) => row);
+}
+
+export async function recentJobs() {
+  const store = (await database).transaction("jobs").store.index("by-updated");
+  let cursor = await store.openCursor(null, "prev");
+  const jobs: JobRecord[] = [];
+  while (cursor && jobs.length < 50) { jobs.push(cursor.value); cursor = await cursor.continue(); }
+  return jobs;
 }
 
 export async function listJobs() {

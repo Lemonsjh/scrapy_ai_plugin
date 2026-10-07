@@ -3,6 +3,15 @@ import type { ExtractionPlan, SemanticPageSnapshot } from "./schemas.js";
 export type RowData = Record<string, string | number | null>;
 export type JobStatus = "idle" | "running" | "paused" | "completed" | "partial" | "failed" | "cancelled";
 
+export interface CollectedRow {
+  key: string;
+  index: number;
+  data: RowData;
+  detailStatus?: "pending" | "success" | "failed";
+  detailError?: string;
+  pageUrl?: string;
+}
+
 export interface DetailItem {
   key: string;
   row: RowData;
@@ -51,7 +60,7 @@ export type ExtensionMessage =
   | { type: "PREVIEW_PLAN"; plan: ExtractionPlan }
   | { type: "PREVIEW_DETAIL"; plan: ExtractionPlan }
   | { type: "HIGHLIGHT_FIELD"; plan: ExtractionPlan; fieldId: string }
-  | { type: "START_PICKER"; fieldId: string }
+  | { type: "START_PICKER"; fieldId: string; rowSelectors?: string[] }
   | { type: "PICKER_RESULT"; fieldId: string; selectors: string[]; sample: string }
   | { type: "START_SCOPE_PICKER" }
   | { type: "SCOPE_RESULT"; candidates: ScopeCandidate[] }
@@ -64,7 +73,10 @@ export type ExtensionMessage =
   | { type: "JOB_BATCH"; jobId: string; rows: RowData[]; page: number; pageUrl?: string; detailCount?: number; detailFailed?: number; detailError?: string }
   | { type: "JOB_EVENT"; jobId: string; status: JobStatus; error?: string }
   | { type: "GET_JOB"; jobId?: string }
+  | { type: "GET_TAB_JOB"; tabId: number }
+  | { type: "LIST_JOBS" }
   | { type: "GET_ROWS"; jobId: string }
+  | { type: "GET_ROW_RECORDS"; jobId: string }
   | { type: "PAUSE_JOB"; jobId: string }
   | { type: "RESUME_JOB"; jobId: string }
   | { type: "CANCEL_JOB"; jobId: string }

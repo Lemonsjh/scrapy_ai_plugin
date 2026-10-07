@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { activeTab, parseAiPlanOutput, tabMessage } from "./extension-api";
+import { activeTab, parseAiPlanOutput, runtimeMessage, tabMessage } from "./extension-api";
 
 function installChromeMock(options: { granted?: boolean; permissionRequest?: boolean; tabs?: chrome.tabs.Tab[] } = {}) {
   const tabs = options.tabs ?? [{ id: 17, url: "https://hotel.meituan.com/data-center" } as chrome.tabs.Tab];
@@ -53,6 +53,14 @@ afterEach(() => {
 });
 
 describe("side panel page access", () => {
+  it("treats an error on a saved task as task data, not a messaging failure", async () => {
+    installChromeMock();
+    const response = { id: "paused-job", status: "paused", error: "网站限制访问" };
+    Object.assign(chrome, { runtime: { sendMessage: vi.fn().mockResolvedValue(response) } });
+    expect(await runtimeMessage({ type: "GET_JOB", jobId: response.id })).toEqual(response);
+    Object.assign(chrome, { runtime: { sendMessage: vi.fn().mockResolvedValue({ error: "找不到任务" }) } });
+    await expect(runtimeMessage({ type: "GET_JOB" })).rejects.toThrow("找不到任务");
+  });
   it("resolves the active HTTP page from the browser window", async () => {
     installChromeMock();
     const tab = await activeTab();

@@ -11,12 +11,13 @@ function stableClasses(element: Element) {
     .slice(0, 3);
 }
 
-function segment(element: Element, includePosition = false) {
+function segment(element: Element, includePosition = false, relative = false) {
   const tag = element.tagName.toLowerCase();
   const id = element.id;
-  if (id && id.length < 80 && !unstable.test(id)) return `#${escaped(id)}`;
+  if (!relative && id && id.length < 80 && !unstable.test(id)) return `#${escaped(id)}`;
 
   for (const name of ["data-testid", "data-id", "data-key", "itemprop", "aria-label"]) {
+    if (relative && ["data-id", "data-key"].includes(name)) continue;
     const value = element.getAttribute(name);
     if (value && value.length < 100) return `${tag}[${name}="${escaped(value)}"]`;
   }
@@ -40,26 +41,38 @@ function unique(selector: string, root: ParentNode) {
 
 export function selectorCandidates(element: Element, root: ParentNode = document): string[] {
   const results: string[] = [];
-  const direct = segment(element);
+  const relative = root instanceof Element;
+  const direct = segment(element, false, relative);
   if (unique(direct, root)) results.push(direct);
 
   let current: Element | null = element;
   const path: string[] = [];
   for (let depth = 0; current && current !== root && depth < 6; depth += 1) {
-    path.unshift(segment(current, depth > 1));
+    path.unshift(segment(current, true, relative));
     const candidate = path.join(" > ");
     if (unique(candidate, root)) results.push(candidate);
     current = current.parentElement;
   }
 
-  const positional = segment(element, true);
+  const positional = segment(element, true, relative);
   if (!results.includes(positional)) results.push(positional);
   return [...new Set(results)].slice(0, 5);
+}
+
+export function rowSelectorCandidates(element: Element) {
+  const parent = element.parentElement;
+  if (!parent) return selectorCandidates(element);
+  const siblings = [...parent.children].filter((node) => node.tagName === element.tagName);
+  if (siblings.length < 2) return selectorCandidates(element);
+  const classes = stableClasses(element).filter((name) => siblings.filter((node) => node.classList.contains(name)).length > 1);
+  const row = `${element.tagName.toLowerCase()}${classes.map((name) => `.${escaped(name)}`).join("")}`;
+  return selectorCandidates(parent).map((container) => `${container} > ${row}`).slice(0, 5);
 }
 
 export function queryFirst(root: ParentNode, selectors: string[]) {
   for (const selector of selectors) {
     try {
+      if (root instanceof Element && /^:scope(?:\[[^\]]+\])*$/.test(selector) && root.matches(`*${selector.slice(6)}`)) return root;
       const found = root.querySelector(selector);
       if (found) return found;
     } catch {

@@ -1,8 +1,10 @@
 import type { ExtensionMessage, JobRecord, JobStatus } from "@atlas/shared";
 import { ExtractionPlanSchema } from "@atlas/shared";
-import { addRows, getJob, getLatestJob, getRows, getTabJob, listJobs, putJob, pendingDetails, saveDetail, retryDetails } from "./database";
+import { addRows, getJob, getLatestJob, getRows, getTabJob, listJobs, putJob, pendingDetails, saveDetail, retryDetails, getRowRecords, recentJobs, getActiveTabJob, activateJob } from "./database";
 import { createExport } from "./exporter";
 import { isSameSite, retryTime } from "../detail-site";
+import { requireJobPage } from "./job-access";
+import { jobDiagnostics } from "./diagnostics";
 
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => undefined);
 
@@ -45,15 +47,14 @@ chrome.runtime.onMessage.addListener((raw: ExtensionMessage, sender, respond) =>
         const parsed = checked.data;
         const tabId = sender.tab?.id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
         if (tabId === undefined) throw new Error("找不到活动页面");
-        const existing = await getTabJob(tabId);
-        if (existing && ["running", "paused"].includes(existing.status)) throw new Error("当前页面已有未结束任务，请先停止或继续原任务");
+        if (await getActiveTabJob(tabId)) throw new Error("当前页面已有未结束任务，请先停止或继续原任务");
         if (!await injectCollector(tabId)) throw new Error("无法连接当前页面，请刷新网页后重试");
         const now = Date.now();
         const job: JobRecord = {
           id: crypto.randomUUID(), tabId, url: raw.url, plan: parsed, status: "running",
           page: 1, rowCount: 0, detailCount: 0, detailFailed: 0, detailError: undefined, startedAt: now, updatedAt: now,
         };
-        await putJob(job);
+        await activateJob(job);
         if (!await sendToTab(tabId, { type: "RUN_JOB", job })) {
           await setStatus(job.id, "failed", "采集器未连接");
           throw new Error("采集器未连接，请刷新网页后重新开始");
@@ -80,7 +81,10 @@ chrome.runtime.onMessage.addListener((raw: ExtensionMessage, sender, respond) =>
       }
       case "JOB_EVENT": return setStatus(raw.jobId, raw.status, raw.error);
       case "GET_JOB": return raw.jobId ? getJob(raw.jobId) : getLatestJob();
+      case "GET_TAB_JOB": return getTabJob(raw.tabId);
+      case "LIST_JOBS": return recentJobs();
       case "GET_ROWS": return getRows(raw.jobId);
+      case "GET_ROW_RECORDS": return getRowRecords(raw.jobId);
       case "PAUSE_JOB": {
         const job = await setStatus(raw.jobId, "paused");
         await sendToTab(job.tabId, raw);
@@ -90,8 +94,9 @@ chrome.runtime.onMessage.addListener((raw: ExtensionMessage, sender, respond) =>
         const stored = await getJob(raw.jobId);
         if (!stored || stored.status !== "paused") throw new Error("仅暂停任务可以继续");
         if (stored.retryAt && stored.retryAt > Date.now()) throw new Error("网站要求的等待时间尚未结束，请稍后继续");
-        const job = await setStatus(raw.jobId, "running");
-        job.startedAt = Date.now(); job.retryAt = undefined; await putJob(job);
+        await requireJobPage(stored);
+        if (await getActiveTabJob(stored.tabId, stored.id)) throw new Error("原标签页已有其他未结束任务，请先停止或完成该任务");
+        const job = await activateJob({ ...stored, status: "running", startedAt: Date.now(), updatedAt: Date.now(), retryAt: undefined, error: undefined }, "paused");
         const sent = await sendToTab(job.tabId, raw);
         if (!sent?.active) {
           if (!await injectCollector(job.tabId) || !await sendToTab(job.tabId, { type: "RUN_JOB", job })) return setStatus(job.id, "paused", "采集页面不可用，请打开原页面后继续");
@@ -99,6 +104,10 @@ chrome.runtime.onMessage.addListener((raw: ExtensionMessage, sender, respond) =>
         return job;
       }
       case "RETRY_DETAILS": {
+        const stored = await getJob(raw.jobId);
+        if (!stored) throw new Error("任务不存在");
+        await requireJobPage(stored);
+        if (await getActiveTabJob(stored.tabId, stored.id)) throw new Error("原标签页已有其他未结束任务，请先停止或完成该任务");
         const job = await retryDetails(raw.jobId);
         if (!await injectCollector(job.tabId) || !await sendToTab(job.tabId, { type: "RUN_JOB", job })) return setStatus(job.id, "paused", "采集页面不可用，请打开原页面后继续");
         return job;
@@ -124,7 +133,7 @@ chrome.runtime.onMessage.addListener((raw: ExtensionMessage, sender, respond) =>
       }
       case "GET_DIAGNOSTICS": {
         const jobs = await listJobs();
-        return { version: chrome.runtime.getManifest().version, generatedAt: new Date().toISOString(), jobs };
+        return { version: chrome.runtime.getManifest().version, generatedAt: new Date().toISOString(), jobs: jobs.map(jobDiagnostics) };
       }
       default: return undefined;
     }

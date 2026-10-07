@@ -44,6 +44,7 @@ export function PlanEditor({ plan, matches, onChange, onPick, onHighlight }: Pro
       <div><span className="eyebrow">ROW ROOT</span><b>列表行容器</b><code>{plan.rowSelectors[0]}</code></div>
       <button className="outline small" onClick={() => onPick("__row__")}><Crosshair size={14} />重新点选</button>
     </section>
+    <p className="panel-description">点选时按 ↑ 选外层、↓ 选内层，Enter 确认；字段须在列表行内选择，Esc 取消。</p>
     <div className="section-heading"><div><span className="eyebrow">FIELD MAP</span><h2>字段映射</h2></div><button className="icon-button dark" onClick={addField}><Plus size={18} /></button></div>
     <div className="field-stack">
       {plan.fields.map((field, index) => {

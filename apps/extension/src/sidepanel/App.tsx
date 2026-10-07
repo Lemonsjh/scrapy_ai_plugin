@@ -1,5 +1,5 @@
-import { ArrowLeft, ArrowRight, Bot, Check, ChevronRight, Crosshair, Database, LoaderCircle, Save, ScanSearch, Settings as SettingsIcon, ShieldCheck, Sparkles } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { ArrowLeft, ArrowRight, Bot, Check, ChevronRight, Clock3, Crosshair, Database, LoaderCircle, Save, ScanSearch, Settings as SettingsIcon, ShieldCheck, Sparkles } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import type { DetailPreviewResponse, ExtractionPlan, FieldMatch, JobRecord, RowData, ScopeCandidate, SnapshotResponse } from "@atlas/shared";
 import { ExtractionPlanSchema } from "@atlas/shared";
 import { PlanEditor } from "./PlanEditor";
@@ -7,7 +7,9 @@ import { ResultsView } from "./ResultsView";
 import { SettingsDrawer } from "./SettingsDrawer";
 import { AiDialogue, type DialogueEntry } from "./AiDialogue";
 import { PreviewPanel } from "./PreviewPanel";
-import { activeTab, analyzePage, defaultSettings, getLatestJob, getRows, inspectPage, loadSettings, previewPlan, runtimeMessage, saveSettings, tabMessage, type Settings } from "./extension-api";
+import { HistoryPanel } from "./HistoryPanel";
+import { useJobResults } from "./job-results";
+import { activeTab, analyzePage, defaultSettings, inspectPage, loadSettings, previewPlan, runtimeMessage, saveSettings, tabMessage, type Settings } from "./extension-api";
 
 type Step = "intent" | "plan" | "results";
 
@@ -64,10 +66,10 @@ export default function App() {
   const [trial, setTrial] = useState<{ signature: string; pageUrl: string; result: DetailPreviewResponse } | null>(null);
   const [trialError, setTrialError] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
-  const [job, setJob] = useState<JobRecord | null>(null);
-  const [rows, setRows] = useState<RowData[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { job, setJob, records, refreshJob } = useJobResults(setError);
   const [scopeCandidates, setScopeCandidates] = useState<ScopeCandidate[]>([]);
   const [correction, setCorrection] = useState("");
   const [dialogue, setDialogue] = useState<DialogueEntry[]>([{
@@ -88,26 +90,11 @@ export default function App() {
       const template = (stored.templates as Record<string, { plan: ExtractionPlan; intent: string }> | undefined)?.[new URL(tab.url).origin];
       if (template) setSavedTemplate(template);
     }).catch(() => undefined);
-    void Promise.all([getLatestJob(), activeTab()]).then(([latest, tab]) => {
-      if (latest && latest.tabId === tab.id && latest.status !== "cancelled") { setJob(latest); setPlan(latest.plan); setStep("results"); void updatePreview(latest.plan); }
+    void activeTab().then(async (tab) => {
+      const latest = await runtimeMessage<JobRecord | undefined>({ type: "GET_TAB_JOB", tabId: tab.id });
+      if (latest && latest.status !== "cancelled") { setJob(latest); setPlan(latest.plan); setStep("results"); }
     }).catch(() => undefined);
   }, []);
-
-  const refreshJob = useCallback(async () => {
-    if (!job) return;
-    const latest = await runtimeMessage<JobRecord>({ type: "GET_JOB", jobId: job.id });
-    if (latest) {
-      setJob(latest);
-      setRows(await getRows(latest.id));
-    }
-  }, [job?.id]);
-
-  useEffect(() => {
-    if (step !== "results" || !job) return;
-    void refreshJob();
-    const timer = window.setInterval(() => void refreshJob(), 800);
-    return () => window.clearInterval(timer);
-  }, [step, job?.id, refreshJob]);
 
   useEffect(() => {
     const listener = (message: { type?: string; fieldId?: string; selectors?: string[]; candidates?: ScopeCandidate[] }) => {
@@ -195,8 +182,8 @@ export default function App() {
   };
 
   const createFromScope = async (candidate: ScopeCandidate) => {
-    const fields: ExtractionPlan["fields"] = [{ id: "title", name: "内容标题", selectors: candidate.hasLink ? [".hd a", "a:not(:has(img))", "a"] : ["a", "h3", "h2", "p"], source: "text", required: true, confidence: 1, transforms: [{ type: "trim" }] }];
-    if (candidate.hasLink) fields.push({ id: "link", name: "详情链接", selectors: [".hd a[href]", "a:not(:has(img))[href]", "a[href]"], source: "href", required: true, confidence: 1, transforms: [{ type: "absolute_url" }] });
+    const fields: ExtractionPlan["fields"] = [{ id: "title", name: "内容标题", selectors: candidate.hasLink ? [".hd a", "a:not(:has(img))", "a", ":scope"] : ["h3", "h2", "p", ":scope"], source: "text", required: true, confidence: 1, transforms: [{ type: "trim" }] }];
+    if (candidate.hasLink) fields.push({ id: "link", name: "详情链接", selectors: [".hd a[href]", "a:not(:has(img))[href]", "a[href]", ":scope[href]"], source: "href", required: true, confidence: 1, transforms: [{ type: "absolute_url" }] });
     const next: ExtractionPlan = {
       mode: "list", rowSelectors: [candidate.rowSelector], fields, pagination: { type: "none" }, filters: [],
       limits: { maxPages: 1, maxRows: candidate.count, maxDurationMs: 600000, delayMs: 1000 }, deduplicateBy: ["title"],
@@ -236,7 +223,7 @@ export default function App() {
       if (!latestPreview.rows.length || latestPreview.matches.some((match) => match.count === 0)) throw new Error("当前页面未匹配到所需内容，请重新点选");
       if (parsed.data.detail && (trial?.signature !== trialKey(parsed.data, latestPreview.rows) || trial?.pageUrl !== tab.url)) throw new Error("页面内容已变化，请在当前页面重新试读详情");
       const created = await runtimeMessage<JobRecord>({ type: "START_JOB", plan: parsed.data, url: tab.url });
-      setJob(created); setRows([]); setStep("results");
+      setJob(created); setStep("results");
     } catch (cause) { setError(readableError(cause, "任务启动失败")); }
     finally { setBusy(null); }
   };
@@ -257,16 +244,25 @@ export default function App() {
     <header className="topbar">
       <div className="brand-mark"><span>A</span></div><div className="brand"><b>ATLAS</b><small>AI DATA WORKBENCH</small></div>
       <div className="step-track"><span className={step === "intent" ? "active" : "done"}>01</span><i /><span className={step === "plan" ? "active" : step === "results" ? "done" : ""}>02</span><i /><span className={step === "results" ? "active" : ""}>03</span></div>
+      <button className="icon-button" disabled={!!busy} onClick={() => setHistoryOpen(!historyOpen)} aria-label="任务历史"><Clock3 size={18} /></button>
       <button className="icon-button" onClick={() => setSettingsOpen(true)} aria-label="设置"><SettingsIcon size={18} /></button>
     </header>
 
     <main>
+      {historyOpen ? <HistoryPanel onClose={() => setHistoryOpen(false)} onOpen={(saved) => {
+        setJob(saved); setPlan(saved.plan); setError(null); setHistoryOpen(false); setStep("results");
+      }} onReuse={async (saved) => {
+        const result = await previewPlan(saved.plan);
+        setPlan(saved.plan); setMatches(result.matches); setPreviewRows(result.rows); setPreviewErrors(result.errors);
+        setTrial(null); setTrialError(null); setInspection(null); setWarnings(["已复用历史规则，请在当前页面核对字段；原任务的数据不会被修改。"]);
+        setHistoryOpen(false); setStep("plan");
+      }} /> : <>
       {step === "intent" && <>
         <section className="intro"><span className="eyebrow">INTENT CONSOLE · 01</span><h1>说出你要的<br/><em>数据形状。</em></h1><p>Atlas 会在本地压缩页面结构，再让 AI 生成可检查、可修正的采集规则。</p></section>
         <section className="intent-card">
           <div className="card-label"><Bot size={15} /><span>采集需求</span><small>{intent.length}/2000</small></div>
           <textarea value={intent} maxLength={2000} placeholder="例如：采集电影名、评分、评价人数和链接，最多 3 页" onChange={(event) => setIntent(event.target.value)} />
-          <div className="intent-actions"><span><button className="text-button" onClick={createManual}><Crosshair size={15} />手动创建</button><button className="text-button" disabled={!!busy} onClick={() => void tabMessage({ type: "START_SCOPE_PICKER" })}><Crosshair size={15} />快速选区</button></span>
+          <div className="intent-actions"><span><button className="text-button" onClick={createManual}><Crosshair size={15} />手动创建</button><button className="text-button" disabled={!!busy} onClick={() => void tabMessage({ type: "START_SCOPE_PICKER" }).catch((cause) => setError(readableError(cause, "选区失败")))}><Crosshair size={15} />快速选区</button></span>
             <button className="primary" disabled={!!busy || intent.trim().length < 3} onClick={inspection ? parseWithAi : inspect}>
               {busy ? <LoaderCircle className="spin" size={17} /> : inspection ? <Sparkles size={17} /> : <ScanSearch size={17} />}
               {busy ?? (inspection ? "AI 解析" : "检查页面")}<ArrowRight size={16} />
@@ -292,18 +288,19 @@ export default function App() {
         <AiDialogue entries={dialogue} candidates={inspection?.summary.candidates} characters={inspection?.summary.characters} redactions={inspection?.summary.redactions}
           correction={correction} disabled={!!busy || !inspection} onCorrectionChange={inspection ? setCorrection : undefined} onSendCorrection={inspection ? reviseWithAi : undefined} />
         <PlanEditor plan={plan} matches={matches} onChange={(next) => { setPlan(next); void updatePreview(next); }}
-          onPick={(fieldId) => void tabMessage({ type: "START_PICKER", fieldId })}
-          onHighlight={(fieldId) => void tabMessage({ type: "HIGHLIGHT_FIELD", plan, fieldId })} />
+          onPick={(fieldId) => void tabMessage({ type: "START_PICKER", fieldId, rowSelectors: plan.rowSelectors }).catch((cause) => setError(readableError(cause, "点选失败")))}
+          onHighlight={(fieldId) => void tabMessage({ type: "HIGHLIGHT_FIELD", plan, fieldId }).catch((cause) => setError(readableError(cause, "高亮失败")))} />
         <section className="preview-strip"><span className="eyebrow">PREVIEW</span><b>{previewRows.length}</b><span>行样本</span><i />
           <b className={invalidCount ? "bad-text" : "good-text"}>{invalidCount}</b><span>异常字段</span></section>
         <button className="primary wide sticky-action" disabled={invalidCount > 0 || !!busy || (!!plan.detail && !verifiedTrial)} onClick={startJob}>{plan.detail && !verifiedTrial ? "先试读详情再开始" : "确认并开始采集"}<ChevronRight size={17} /></button>
       </>}
 
       {step === "results" && job && <>
-        <div className="page-heading"><button className="icon-button" onClick={() => setStep("plan")}><ArrowLeft size={18} /></button><div><span className="eyebrow">COLLECTION · 03</span><h1>任务数据流</h1></div></div>
-        <ResultsView job={job} rows={rows} onControl={(action) => void runtimeMessage({ type: action === "pause" ? "PAUSE_JOB" : action === "resume" ? "RESUME_JOB" : "CANCEL_JOB", jobId: job.id }).then(refreshJob).catch((cause) => setError(readableError(cause, "任务操作失败")))}
+        <div className="page-heading"><button className="icon-button" aria-label="返回规则" onClick={() => { if (plan) void updatePreview(plan); setStep("plan"); }}><ArrowLeft size={18} /></button><div><span className="eyebrow">COLLECTION · 03</span><h1>任务数据流</h1></div><button className="outline small" title="原任务不会停止，可在历史中找回" onClick={() => { setStep("intent"); setJob(null); setPlan(null); setInspection(null); setTrial(null); setScopeCandidates([]); setError(null); }}>新采集</button></div>
+        <ResultsView job={job} records={records} onControl={(action) => void runtimeMessage({ type: action === "pause" ? "PAUSE_JOB" : action === "resume" ? "RESUME_JOB" : "CANCEL_JOB", jobId: job.id }).then(refreshJob).catch((cause) => setError(readableError(cause, "任务操作失败")))}
           onRetry={() => void runtimeMessage({ type: "RETRY_DETAILS", jobId: job.id }).then(refreshJob).catch((cause) => setError(readableError(cause, "补采失败")))}
           onExport={(format) => void runtimeMessage({ type: "EXPORT_ROWS", jobId: job.id, format }).catch((cause) => setError(readableError(cause, "导出失败")))} />
+      </>}
       </>}
       {error && <div className="toast-error" onClick={() => setError(null)}>{error}<span>×</span></div>}
     </main>
@@ -311,6 +308,6 @@ export default function App() {
       onDiagnostics={() => void runtimeMessage({ type: "GET_DIAGNOSTICS" }).then((diagnostics) => {
         const url = URL.createObjectURL(new Blob([JSON.stringify(diagnostics, null, 2)], { type: "application/json" }));
         const anchor = document.createElement("a"); anchor.href = url; anchor.download = `atlas-diagnostics-${Date.now()}.json`; anchor.click(); URL.revokeObjectURL(url);
-      })} />
+      }).catch((cause) => setError(readableError(cause, "诊断导出失败")))} />
   </div>;
 }
