@@ -20,6 +20,11 @@ export function installPreviewChrome() {
       summary: { candidates: 3, characters: 18420, redactions: 3, truncated: false },
     };
     if (message.type === "PREVIEW_PLAN") return previewPlan(message.plan);
+    if (message.type === "START_SCOPE_PICKER") {
+      listeners.forEach((listener) => listener({ type: "SCOPE_RESULT", candidates: [{ rowSelector: ".items > li", count: 25, sample: "肖申克的救赎 · 9.7", hasLink: true }] }));
+      return { ok: true };
+    }
+    if (message.type === "PREVIEW_DETAIL") return { url: "https://example.com/item/1", data: Object.fromEntries((message.plan.detail?.fields ?? []).map((field) => [field.id, "这是一段用于本地界面验证的详情正文。点击单元格可以展开全文。"])), errors: [] };
     if (message.type === "START_JOB") {
       mockJob = { id: "preview-job", tabId: 1, url: message.url, plan: message.plan, status: "running", page: 2, rowCount: 8, startedAt: Date.now(), updatedAt: Date.now() };
       return mockJob;

@@ -1,7 +1,19 @@
 import type { ExtractionPlan, SemanticPageSnapshot } from "./schemas.js";
 
 export type RowData = Record<string, string | number | null>;
-export type JobStatus = "idle" | "running" | "paused" | "completed" | "failed" | "cancelled";
+export type JobStatus = "idle" | "running" | "paused" | "completed" | "partial" | "failed" | "cancelled";
+
+export interface DetailItem {
+  key: string;
+  row: RowData;
+  pageUrl?: string;
+}
+
+export interface DetailPreviewResponse {
+  url: string;
+  data: RowData;
+  errors: string[];
+}
 
 export interface JobRecord {
   id: string;
@@ -14,6 +26,9 @@ export interface JobRecord {
   detailCount?: number;
   detailFailed?: number;
   detailError?: string;
+  detailPending?: number;
+  retryAt?: number;
+  detailOnly?: boolean;
   startedAt: number;
   updatedAt: number;
   error?: string;
@@ -41,9 +56,12 @@ export type ExtensionMessage =
   | { type: "START_SCOPE_PICKER" }
   | { type: "SCOPE_RESULT"; candidates: ScopeCandidate[] }
   | { type: "START_JOB"; plan: ExtractionPlan; url: string }
-  | { type: "FETCH_DETAIL"; jobId: string; url: string }
+  | { type: "FETCH_DETAIL"; jobId?: string; pageUrl?: string; url: string }
+  | { type: "GET_PENDING_DETAILS"; jobId: string }
+  | { type: "SAVE_DETAIL"; jobId: string; key: string; data?: RowData; error?: string; blocked?: boolean; retryAt?: number }
+  | { type: "RETRY_DETAILS"; jobId: string }
   | { type: "RUN_JOB"; job: JobRecord }
-  | { type: "JOB_BATCH"; jobId: string; rows: RowData[]; page: number; detailCount?: number; detailFailed?: number; detailError?: string }
+  | { type: "JOB_BATCH"; jobId: string; rows: RowData[]; page: number; pageUrl?: string; detailCount?: number; detailFailed?: number; detailError?: string }
   | { type: "JOB_EVENT"; jobId: string; status: JobStatus; error?: string }
   | { type: "GET_JOB"; jobId?: string }
   | { type: "GET_ROWS"; jobId: string }

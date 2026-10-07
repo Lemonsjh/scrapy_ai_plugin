@@ -1,179 +1,123 @@
-import type { ExtensionMessage, JobRecord, RowData } from "@atlas/shared";
-import { extractDetailDocument, extractRows, fingerprint } from "./extractor";
+import type { DetailItem, ExtensionMessage, JobRecord } from "@atlas/shared";
+import { extractRows, fingerprint } from "./extractor";
 import { queryFirst } from "./selectors";
-import { isSameSite, preferredDetailUrl } from "../detail-site";
+import { DetailReadError, readDetail } from "./detail-reader";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-const rateLimited = (message: string) => /429|too many requests/i.test(message);
-
-async function waitForChange(previous: string, timeoutMs: number) {
-  return new Promise<boolean>((resolve) => {
-    let settled = false;
-    const finish = (changed: boolean) => {
-      if (settled) return;
-      settled = true;
-      observer.disconnect();
-      clearTimeout(timeout);
-      resolve(changed);
-    };
-    const observer = new MutationObserver(() => {
-      window.setTimeout(() => finish(fingerprint(extractRows(activePlan!).rows) !== previous), 400);
-    });
-    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
-    const timeout = window.setTimeout(() => finish(false), timeoutMs);
-  });
-}
-
-let activePlan: JobRecord["plan"] | null = null;
+let activeJob: string | null = null;
 let cancelled = false;
 let paused = false;
+let currentJob: JobRecord | null = null;
+let controller: AbortController | null = null;
 
 async function send(message: ExtensionMessage) {
-  return chrome.runtime.sendMessage(message);
+  const response = await chrome.runtime.sendMessage(message);
+  if (response?.error && !response?.id) throw new Error(response.error);
+  return response;
 }
 
-function limitRows(rows: RowData[], job: JobRecord) {
-  const maxRows = Math.min(job.plan.limits.maxRows, job.plan.detail?.maxItems ?? Number.POSITIVE_INFINITY);
-  return rows.slice(0, Math.max(0, maxRows - job.rowCount));
+async function ready() {
+  while (paused && !cancelled) await sleep(100);
+  return !cancelled;
 }
 
-function readFrameHtml(url: URL) {
-  return new Promise<string>((resolve, reject) => {
-    const frame = document.createElement("iframe");
-    let timeout = 0;
-    const finish = (error?: Error, html?: string) => {
-      window.clearTimeout(timeout);
-      frame.remove();
-      if (error) reject(error); else resolve(html ?? "");
+function waitForChange(plan: JobRecord["plan"], previous: string, timeoutMs: number) {
+  return new Promise<boolean>((resolve) => {
+    let stableTimer = 0;
+    const finish = (changed: boolean) => {
+      observer.disconnect(); clearTimeout(timer); clearTimeout(stableTimer); resolve(changed);
     };
-    timeout = window.setTimeout(() => finish(new Error("详情页加载超时")), 15_000);
-    frame.hidden = true;
-    frame.dataset.atlasUi = "true";
-    frame.addEventListener("error", () => finish(new Error("详情页框架加载失败")), { once: true });
-    frame.addEventListener("load", () => {
-      try {
-        const html = frame.contentDocument?.documentElement.outerHTML;
-        if (!html) throw new Error("详情页框架不可读取");
-        if (rateLimited(html)) return finish(new Error("网站触发 429 频率限制"));
-        finish(undefined, html);
-      } catch {
-        finish(new Error("详情页框架不可读取"));
-      }
-    }, { once: true });
-    frame.src = url.href;
-    document.documentElement.append(frame);
+    const observer = new MutationObserver(() => {
+      clearTimeout(stableTimer);
+      stableTimer = window.setTimeout(() => {
+        if (fingerprint(extractRows(plan).rows) !== previous) finish(true);
+      }, 400);
+    });
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    const timer = window.setTimeout(() => finish(false), timeoutMs);
   });
 }
 
-async function readDetailHtml(url: URL, job: JobRecord) {
-  if (url.origin === location.origin) {
-    try {
-      const response = await fetch(url.href, { credentials: "include" });
-      if (!response.ok) throw new Error(`详情页返回 ${response.status}`);
-      return response.text();
-    } catch (error) {
-      if (error instanceof Error && /^详情页返回/.test(error.message)) throw error;
-      return readFrameHtml(url);
+async function drainDetails(job: JobRecord) {
+  if (!job.plan.detail) return true;
+  const queue = await send({ type: "GET_PENDING_DETAILS", jobId: job.id }) as DetailItem[];
+  for (const item of queue) {
+    if (!await ready()) return false;
+    if (Date.now() - job.startedAt >= job.plan.limits.maxDurationMs) {
+      await send({ type: "JOB_EVENT", jobId: job.id, status: "paused", error: "达到本次运行时间上限，未完成详情已保存，可手动继续。" });
+      return false;
     }
-  }
-  const response = await send({ type: "FETCH_DETAIL", jobId: job.id, url: url.href });
-  if (!response?.html) throw new Error(response?.error ?? "详情页请求失败");
-  return response.html as string;
-}
-
-async function enrichDetails(rows: RowData[], job: JobRecord) {
-  const detail = job.plan.detail;
-  if (!detail) return { rows, count: 0, failed: 0, error: undefined };
-  const enriched: RowData[] = [];
-  let failed = 0;
-  let lastError: string | undefined;
-  for (const row of rows) {
-    while (paused && !cancelled) await sleep(250);
-    const empty = Object.fromEntries(detail.fields.map((field) => [field.id, null]));
-    const href = row[detail.linkFieldId];
     try {
-      const rawUrl = new URL(String(href ?? ""), location.href);
-      if (!/^https?:$/.test(rawUrl.protocol) || !isSameSite(location.href, rawUrl.href)) throw new Error("详情链接不在当前网站");
-      const url = preferredDetailUrl(location.href, rawUrl.href);
-      const document = new DOMParser().parseFromString(await readDetailHtml(url, job), "text/html");
-      const extracted = extractDetailDocument(document, detail, url.href).data;
-      if (Object.values(extracted).every((value) => value === null)) { failed += 1; lastError = "未匹配到详情内容选择器"; }
-      enriched.push({ ...row, ...empty, ...extracted });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "详情页请求失败";
-      enriched.push({ ...row, ...empty });
-      if (rateLimited(message)) {
-        const remaining = rows.slice(enriched.length);
-        enriched.push(...remaining.map((item) => ({ ...item, ...empty })));
-        failed += remaining.length + 1;
-        lastError = "网站触发 429 频率限制，已停止后续详情读取；请稍后再试";
-        break;
-      }
-      failed += 1;
-      lastError = message;
+      const result = await readDetail(job.plan.detail, item.row[job.plan.detail.linkFieldId], job.id, controller?.signal, item.pageUrl ?? job.url);
+      if (cancelled) return false;
+      await send({ type: "SAVE_DETAIL", jobId: job.id, key: item.key, data: result.data, error: result.errors.join("；") || undefined });
+    } catch (cause) {
+      if (cancelled) return false;
+      const error = cause instanceof Error ? cause.message : "详情读取失败";
+      const blocked = cause instanceof DetailReadError && cause.blocked;
+      await send({ type: "SAVE_DETAIL", jobId: job.id, key: item.key, error, blocked, retryAt: cause instanceof DetailReadError ? cause.retryAt : undefined });
+      if (blocked) return false;
     }
-    if (!cancelled) await sleep(Math.max(detail.delayMs, 1500));
+    await sleep(Math.max(1500, job.plan.detail.delayMs));
   }
-  return { rows: enriched, count: enriched.length, failed, error: lastError };
+  return ready();
 }
 
 export async function runJob(job: JobRecord) {
-  activePlan = job.plan;
-  cancelled = false;
-  paused = false;
-  const started = job.startedAt || Date.now();
+  if (activeJob) { if (activeJob === job.id) paused = false; return; }
+  activeJob = job.id; currentJob = job; controller = new AbortController(); cancelled = false; paused = false;
   let page = Math.max(1, job.page);
   let noChange = 0;
-  let lastFingerprint = "";
-
   try {
-    while (!cancelled && page <= job.plan.limits.maxPages && Date.now() - started < job.plan.limits.maxDurationMs) {
-      while (paused && !cancelled) await sleep(250);
-      const extracted = extractRows(job.plan);
-      const currentFingerprint = fingerprint(extracted.rows);
-      const batch = await enrichDetails(limitRows(extracted.rows, job), job);
-      const rows = batch.rows;
-      if (rows.length) {
-        const result = await send({ type: "JOB_BATCH", jobId: job.id, rows, page, detailCount: batch.count, detailFailed: batch.failed, detailError: batch.error });
-        job.rowCount = Number(result?.rowCount ?? job.rowCount + rows.length);
+    if (!await drainDetails(job)) return;
+    while (!job.detailOnly && await ready() && page <= job.plan.limits.maxPages) {
+      if (Date.now() - job.startedAt >= job.plan.limits.maxDurationMs) {
+        await send({ type: "JOB_EVENT", jobId: job.id, status: "paused", error: "达到本次运行时间上限，可手动继续。" }); return;
       }
-      if (job.rowCount >= Math.min(job.plan.limits.maxRows, job.plan.detail?.maxItems ?? Number.POSITIVE_INFINITY)) break;
-
+      const extracted = extractRows(job.plan);
+      if (!extracted.rows.length) {
+        await send({ type: "JOB_EVENT", jobId: job.id, status: "paused", error: "列表选择器未匹配到内容，请回到规则页重新点选。" }); return;
+      }
+      const previous = fingerprint(extracted.rows);
+      // Save the list first. Detail updates never change the saved row identity.
+      const saved = await send({ type: "JOB_BATCH", jobId: job.id, rows: extracted.rows, page, pageUrl: location.href });
+      job.rowCount = Number(saved?.rowCount ?? job.rowCount);
+      if (!await drainDetails(job)) return;
+      if (job.rowCount >= job.plan.limits.maxRows || page >= job.plan.limits.maxPages) break;
       const pagination = job.plan.pagination;
       if (pagination.type === "none") break;
       await sleep(job.plan.limits.delayMs);
-
+      if (!await ready()) return;
       if (pagination.type === "next_button") {
         const button = queryFirst(document, pagination.selectors) as HTMLElement | null;
         if (!button || button.matches(":disabled,[aria-disabled='true']")) break;
-        const oldUrl = location.href;
+        const change = waitForChange(job.plan, previous, 8_000);
         await send({ type: "JOB_BATCH", jobId: job.id, rows: [], page: page + 1 });
         button.click();
-        const changed = await waitForChange(currentFingerprint, Math.max(8_000, job.plan.limits.delayMs * 4));
-        if (!changed && location.href === oldUrl) noChange += 1; else noChange = 0;
-        if (noChange >= 2) break;
-        page += 1;
-        continue;
+        if (!await change) {
+          await send({ type: "JOB_BATCH", jobId: job.id, rows: [], page });
+          await send({ type: "JOB_EVENT", jobId: job.id, status: "paused", error: "点击下一页后列表未变化，请检查翻页规则。" }); return;
+        }
+      } else {
+        window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "smooth" });
+        await sleep(pagination.idleMs);
+        noChange = fingerprint(extractRows(job.plan).rows) === previous ? noChange + 1 : 0;
+        if (noChange >= pagination.maxNoChangeRounds) break;
       }
-
-      window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "smooth" });
-      await sleep(pagination.idleMs);
-      const nextFingerprint = fingerprint(extractRows(job.plan).rows);
-      noChange = nextFingerprint === lastFingerprint || nextFingerprint === currentFingerprint ? noChange + 1 : 0;
-      lastFingerprint = nextFingerprint;
-      if (noChange >= pagination.maxNoChangeRounds) break;
       page += 1;
     }
-    if (!cancelled) await send({ type: "JOB_EVENT", jobId: job.id, status: "completed" });
+    if (!cancelled && await ready()) {
+      const latest = await send({ type: "GET_JOB", jobId: job.id }) as JobRecord;
+      if (latest.status === "running") await send({ type: "JOB_EVENT", jobId: job.id, status: latest.detailFailed ? "partial" : "completed" });
+    }
   } catch (error) {
-    await send({ type: "JOB_EVENT", jobId: job.id, status: "failed", error: error instanceof Error ? error.message : "采集失败" });
-  } finally {
-    activePlan = null;
-  }
+    if (!cancelled) await send({ type: "JOB_EVENT", jobId: job.id, status: "failed", error: error instanceof Error ? error.message : "采集失败" });
+  } finally { activeJob = null; currentJob = null; controller = null; }
 }
 
 export function controlJob(action: "pause" | "resume" | "cancel") {
   if (action === "pause") paused = true;
-  if (action === "resume") paused = false;
-  if (action === "cancel") cancelled = true;
+  if (action === "resume") { paused = false; if (currentJob) currentJob.startedAt = Date.now(); }
+  if (action === "cancel") { cancelled = true; controller?.abort(); }
+  return { active: activeJob !== null };
 }

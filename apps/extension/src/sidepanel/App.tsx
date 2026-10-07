@@ -1,11 +1,12 @@
 import { ArrowLeft, ArrowRight, Bot, Check, ChevronRight, Crosshair, Database, LoaderCircle, Save, ScanSearch, Settings as SettingsIcon, ShieldCheck, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { ExtractionPlan, FieldMatch, JobRecord, RowData, ScopeCandidate, SemanticPageSnapshot, SnapshotResponse } from "@atlas/shared";
+import type { DetailPreviewResponse, ExtractionPlan, FieldMatch, JobRecord, RowData, ScopeCandidate, SnapshotResponse } from "@atlas/shared";
 import { ExtractionPlanSchema } from "@atlas/shared";
 import { PlanEditor } from "./PlanEditor";
 import { ResultsView } from "./ResultsView";
 import { SettingsDrawer } from "./SettingsDrawer";
 import { AiDialogue, type DialogueEntry } from "./AiDialogue";
+import { PreviewPanel } from "./PreviewPanel";
 import { activeTab, analyzePage, defaultSettings, getLatestJob, getRows, inspectPage, loadSettings, previewPlan, runtimeMessage, saveSettings, tabMessage, type Settings } from "./extension-api";
 
 type Step = "intent" | "plan" | "results";
@@ -34,6 +35,11 @@ function normalizePlan(plan: ExtractionPlan): ExtractionPlan {
   return { ...plan, fields: plan.fields.map(cap), detail: plan.detail && { ...plan.detail, delayMs: Math.max(plan.detail.delayMs, 1500), fields: plan.detail.fields.map(cap) } };
 }
 
+function trialKey(plan: ExtractionPlan, rows: RowData[]) {
+  const parsed = ExtractionPlanSchema.safeParse(normalizePlan(plan));
+  return JSON.stringify([parsed.success ? parsed.data.detail : plan.detail, rows[0]]);
+}
+
 function applyDetectedPagination(plan: ExtractionPlan, intent: string, snapshot: SnapshotResponse["snapshot"]) {
   const candidate = snapshot.paginationCandidates?.[0];
   const asksForMore = /翻页|多页|全部|所有|top\s*(?:[3-9]\d|[1-9]\d{2,})/i.test(intent);
@@ -54,6 +60,9 @@ export default function App() {
   const [plan, setPlan] = useState<ExtractionPlan | null>(null);
   const [matches, setMatches] = useState<FieldMatch[]>([]);
   const [previewRows, setPreviewRows] = useState<RowData[]>([]);
+  const [previewErrors, setPreviewErrors] = useState<string[]>([]);
+  const [trial, setTrial] = useState<{ signature: string; pageUrl: string; result: DetailPreviewResponse } | null>(null);
+  const [trialError, setTrialError] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [job, setJob] = useState<JobRecord | null>(null);
   const [rows, setRows] = useState<RowData[]>([]);
@@ -79,8 +88,8 @@ export default function App() {
       const template = (stored.templates as Record<string, { plan: ExtractionPlan; intent: string }> | undefined)?.[new URL(tab.url).origin];
       if (template) setSavedTemplate(template);
     }).catch(() => undefined);
-    void getLatestJob().then((latest) => {
-      if (latest && ["running", "paused"].includes(latest.status)) { setJob(latest); setPlan(latest.plan); setStep("results"); }
+    void Promise.all([getLatestJob(), activeTab()]).then(([latest, tab]) => {
+      if (latest && latest.tabId === tab.id && latest.status !== "cancelled") { setJob(latest); setPlan(latest.plan); setStep("results"); void updatePreview(latest.plan); }
     }).catch(() => undefined);
   }, []);
 
@@ -123,6 +132,7 @@ export default function App() {
     try {
       const result = await previewPlan(nextPlan);
       setMatches(result.matches); setPreviewRows(result.rows);
+      setPreviewErrors(result.errors); setTrialError(null);
     } catch (cause) { setError(readableError(cause, "预览失败")); }
   };
 
@@ -190,21 +200,41 @@ export default function App() {
     const next: ExtractionPlan = {
       mode: "list", rowSelectors: [candidate.rowSelector], fields, pagination: { type: "none" }, filters: [],
       limits: { maxPages: 1, maxRows: candidate.count, maxDurationMs: 600000, delayMs: 1000 }, deduplicateBy: ["title"],
-      ...(candidate.hasLink ? { detail: { linkFieldId: "link", maxItems: candidate.count, delayMs: 2000, fields: [{ id: "detail_content", name: "详情内容", selectors: ["article", ".article", "main", "[role='main']", ".article-content"], source: "text", required: false, confidence: 0.5, transforms: [{ type: "trim" }] }] } } : {}),
     };
-    setPlan(next); setWarnings([`快速选区：已锁定 ${candidate.count} 条内容；未调用 AI。${candidate.hasLink ? "已同时启用同域详情采集。" : "未找到稳定详情链接，仅采集容器内文本。"}`]); setScopeCandidates([]); setStep("plan"); await updatePreview(next);
+    setPlan(next); setWarnings([`已锁定 ${candidate.count} 条内容，默认仅采当前列表。${candidate.hasLink ? "需要更多内容时，可手动启用详情采集。" : "未找到详情链接。"}`]); setScopeCandidates([]); setStep("plan"); await updatePreview(next);
+  };
+
+  const trialSignature = plan ? trialKey(plan, previewRows) : "";
+  const verifiedTrial = trial?.signature === trialSignature ? trial.result : undefined;
+  const tryDetail = async () => {
+    if (!plan) return;
+    setBusy("正在试读详情…"); setTrial(null); setTrialError(null);
+    try {
+      const parsed = ExtractionPlanSchema.safeParse(normalizePlan(plan));
+      if (!parsed.success) throw new Error(ruleError(parsed.error.issues));
+      const tab = await activeTab();
+      const result = await tabMessage<DetailPreviewResponse>({ type: "PREVIEW_DETAIL", plan: parsed.data });
+      if (result.errors.length) throw new Error(result.errors.join("；"));
+      setTrial({ signature: trialSignature, pageUrl: tab.url, result });
+    } catch (cause) { setTrialError(readableError(cause, "详情试读失败")); }
+    finally { setBusy(null); }
   };
 
   const startJob = async () => {
     if (!plan) return;
     const parsed = ExtractionPlanSchema.safeParse(normalizePlan(plan));
     if (!parsed.success) return setError(ruleError(parsed.error.issues));
+    if (parsed.data.detail && !verifiedTrial) return setError("请先试读一条详情并确认内容，或关闭详情采集");
     setPlan(parsed.data);
     if (matches.some((match) => match.count === 0)) return setError("存在没有匹配结果的字段，请重新点选或删除");
     if ((plan.limits.maxPages > 10 || plan.limits.maxRows > 1000) && !confirm("当前范围超过默认安全限制，确认继续吗？")) return;
     setBusy("正在启动任务…"); setError(null);
     try {
       const tab = await activeTab();
+      const latestPreview = await previewPlan(parsed.data);
+      setMatches(latestPreview.matches); setPreviewRows(latestPreview.rows); setPreviewErrors(latestPreview.errors);
+      if (!latestPreview.rows.length || latestPreview.matches.some((match) => match.count === 0)) throw new Error("当前页面未匹配到所需内容，请重新点选");
+      if (parsed.data.detail && (trial?.signature !== trialKey(parsed.data, latestPreview.rows) || trial?.pageUrl !== tab.url)) throw new Error("页面内容已变化，请在当前页面重新试读详情");
       const created = await runtimeMessage<JobRecord>({ type: "START_JOB", plan: parsed.data, url: tab.url });
       setJob(created); setRows([]); setStep("results");
     } catch (cause) { setError(readableError(cause, "任务启动失败")); }
@@ -258,20 +288,22 @@ export default function App() {
       {step === "plan" && plan && <>
         <div className="page-heading"><button className="icon-button" onClick={() => setStep("intent")}><ArrowLeft size={18} /></button><div><span className="eyebrow">RULE REVIEW · 02</span><h1>确认采集规则</h1></div><button className="outline small" onClick={saveTemplate}><Save size={14} />模板</button></div>
         {warnings.map((warning, index) => <div className="warning-banner" key={index}>{warning}</div>)}
+        <PreviewPanel plan={plan} rows={previewRows} errors={previewErrors} trial={verifiedTrial} trialError={trialError} busy={!!busy} onTrial={() => void tryDetail()} />
         <AiDialogue entries={dialogue} candidates={inspection?.summary.candidates} characters={inspection?.summary.characters} redactions={inspection?.summary.redactions}
-          correction={correction} disabled={!!busy || !inspection} onCorrectionChange={setCorrection} onSendCorrection={reviseWithAi} />
+          correction={correction} disabled={!!busy || !inspection} onCorrectionChange={inspection ? setCorrection : undefined} onSendCorrection={inspection ? reviseWithAi : undefined} />
         <PlanEditor plan={plan} matches={matches} onChange={(next) => { setPlan(next); void updatePreview(next); }}
           onPick={(fieldId) => void tabMessage({ type: "START_PICKER", fieldId })}
           onHighlight={(fieldId) => void tabMessage({ type: "HIGHLIGHT_FIELD", plan, fieldId })} />
         <section className="preview-strip"><span className="eyebrow">PREVIEW</span><b>{previewRows.length}</b><span>行样本</span><i />
           <b className={invalidCount ? "bad-text" : "good-text"}>{invalidCount}</b><span>异常字段</span></section>
-        <button className="primary wide sticky-action" disabled={invalidCount > 0 || !!busy} onClick={startJob}>确认并开始采集<ChevronRight size={17} /></button>
+        <button className="primary wide sticky-action" disabled={invalidCount > 0 || !!busy || (!!plan.detail && !verifiedTrial)} onClick={startJob}>{plan.detail && !verifiedTrial ? "先试读详情再开始" : "确认并开始采集"}<ChevronRight size={17} /></button>
       </>}
 
       {step === "results" && job && <>
         <div className="page-heading"><button className="icon-button" onClick={() => setStep("plan")}><ArrowLeft size={18} /></button><div><span className="eyebrow">COLLECTION · 03</span><h1>任务数据流</h1></div></div>
-        <ResultsView job={job} rows={rows} onControl={(action) => void runtimeMessage({ type: action === "pause" ? "PAUSE_JOB" : action === "resume" ? "RESUME_JOB" : "CANCEL_JOB", jobId: job.id }).then(refreshJob)}
-          onExport={(format) => void runtimeMessage({ type: "EXPORT_ROWS", jobId: job.id, format })} />
+        <ResultsView job={job} rows={rows} onControl={(action) => void runtimeMessage({ type: action === "pause" ? "PAUSE_JOB" : action === "resume" ? "RESUME_JOB" : "CANCEL_JOB", jobId: job.id }).then(refreshJob).catch((cause) => setError(readableError(cause, "任务操作失败")))}
+          onRetry={() => void runtimeMessage({ type: "RETRY_DETAILS", jobId: job.id }).then(refreshJob).catch((cause) => setError(readableError(cause, "补采失败")))}
+          onExport={(format) => void runtimeMessage({ type: "EXPORT_ROWS", jobId: job.id, format }).catch((cause) => setError(readableError(cause, "导出失败")))} />
       </>}
       {error && <div className="toast-error" onClick={() => setError(null)}>{error}<span>×</span></div>}
     </main>

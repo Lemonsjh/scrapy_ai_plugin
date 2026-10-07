@@ -3,6 +3,7 @@ import { buildSnapshot } from "./snapshot";
 import { previewPlan } from "./extractor";
 import { queryAllFirst, queryFirst, selectorCandidates } from "./selectors";
 import { controlJob, runJob } from "./runner";
+import { previewDetail } from "./detail-reader";
 
 const HIGHLIGHT_ATTR = "data-atlas-highlight";
 let pickerCleanup: (() => void) | null = null;
@@ -121,6 +122,10 @@ const marker = "__atlasCollectorLoaded";
 const scope = window as typeof window & Record<string, unknown>;
 
 if (!scope[marker]) chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, respond) => {
+  if (message.type === "PREVIEW_DETAIL") {
+    void previewDetail(message.plan).then(respond).catch((cause) => respond({ error: cause instanceof Error ? cause.message : "详情试读失败" }));
+    return true;
+  }
   if (message.type === "SNAPSHOT_PAGE") {
     const snapshot = buildSnapshot();
     respond({ snapshot, summary: { candidates: snapshot.candidates.length, characters: snapshot.charCount, redactions: snapshot.redactionCount, truncated: snapshot.truncated } });
@@ -131,7 +136,7 @@ if (!scope[marker]) chrome.runtime.onMessage.addListener((message: ExtensionMess
   if (message.type === "START_SCOPE_PICKER") { startScopePicker(); respond({ ok: true }); }
   if (message.type === "RUN_JOB") { runJob(message.job); respond({ ok: true }); }
   if (message.type === "PAUSE_JOB") { controlJob("pause"); respond({ ok: true }); }
-  if (message.type === "RESUME_JOB") { controlJob("resume"); respond({ ok: true }); }
+  if (message.type === "RESUME_JOB") respond(controlJob("resume"));
   if (message.type === "CANCEL_JOB") { controlJob("cancel"); respond({ ok: true }); }
   return false;
 });

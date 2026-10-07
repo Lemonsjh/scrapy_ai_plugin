@@ -12,6 +12,19 @@
   --danger: #c7382d;
 }
 
+.panel-description,.detail-progress { color: var(--muted); font-size: 12px; line-height: 1.65; margin: 10px 0; }
+.preview-quality { display: flex; flex-wrap: wrap; gap: 8px; font-size: 11px; margin-top: 10px; }
+.detail-trial { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 14px; }
+.detail-trial > p { font-size: 12px; line-height: 1.6; margin: 8px 0; }
+.trial-url { display: block; overflow-wrap: anywhere; margin: 8px 0; color: var(--muted); }
+.data-cell { padding: 0; border: 0; color: inherit; background: none; text-align: left; font: inherit; max-width: 240px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; display: block; }
+.data-cell:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.cell-detail { border: 1px solid var(--line); padding: 12px; margin-top: 12px; background: var(--paper); }
+.cell-detail > div { display: flex; align-items: center; justify-content: space-between; }
+.cell-detail pre { font: inherit; font-size: 13px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; }
+.pulse.partial { background: #d49717; }
+.preview-panel .table-scroll td,.preview-panel .table-scroll th { font-size: 11px; }
+
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 330px; min-height: 100vh; background: radial-gradient(circle at 88% 4%, #fff 0, transparent 25%), #e9e7de; }
 button, input, textarea, select { font: inherit; }

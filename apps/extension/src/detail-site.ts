@@ -1,5 +1,12 @@
 const multiPartSuffixes = new Set(["com.cn", "net.cn", "org.cn", "gov.cn", "edu.cn", "co.uk", "org.uk", "ac.uk"]);
 
+export function retryTime(value: string | null, now = Date.now()) {
+  if (!value) return undefined;
+  const seconds = Number(value);
+  const time = Number.isFinite(seconds) ? now + Math.max(0, seconds) * 1000 : Date.parse(value);
+  return Number.isFinite(time) && time > now ? time : undefined;
+}
+
 export function siteDomain(pageUrl: string) {
   const host = new URL(pageUrl).hostname.toLowerCase();
   if (host === "localhost" || /^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return host;
